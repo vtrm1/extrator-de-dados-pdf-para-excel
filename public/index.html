@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Extrator de PDF</title>
+    <meta name="theme-color" content="#0b6e4f" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Extrator PDF" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" type="image/svg+xml" href="/icons/icon.svg" />
+    <link rel="apple-touch-icon" href="/icons/icon.svg" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="page">
+      <section class="hero">
+        <p class="eyebrow">Uso interno</p>
+        <h1>Ler PDF e gerar dados</h1>
+        <p class="intro">
+          Envie o PDF, revise os dados e exporte ou compartilhe no WhatsApp.
+        </p>
+      </section>
+
+      <section class="panel">
+        <form id="upload-form" class="upload-form">
+          <label class="file-input">
+            <span>Selecionar PDF</span>
+            <input id="pdf-input" type="file" name="pdf" accept="application/pdf" required />
+          </label>
+          <button id="submit-button" type="submit">Processar arquivo</button>
+        </form>
+        <div id="drop-zone" class="drop-zone">
+          Arraste e solte o PDF do anexo aqui (ou clique em "Selecionar PDF")
+        </div>
+
+        <div id="status" class="status"></div>
+
+        <div id="actions" class="actions hidden">
+          <label class="select-wrap">
+            <span>Exporta&ccedil;&atilde;o</span>
+            <select id="export-mode">
+              <option value="all">Tudo em uma planilha</option>
+              <option value="by-page">Separar por p&aacute;gina</option>
+              <option value="by-document">Separar por documento</option>
+            </select>
+          </label>
+          <label class="select-wrap">
+            <span>Visualiza&ccedil;&atilde;o</span>
+            <select id="page-filter">
+              <option value="all">Todas as p&aacute;ginas</option>
+            </select>
+          </label>
+          <button id="export-button" type="button">Exportar Excel</button>
+          <button id="whatsapp-button" type="button">Enviar para WhatsApp</button>
+        </div>
+        <div id="whatsapp-fields" class="whatsapp-fields hidden">
+          <p>Campos no WhatsApp</p>
+          <label><input type="checkbox" data-wa-field="numero_documento" checked /> Documento</label>
+          <label><input type="checkbox" data-wa-field="id_viagem" checked /> ID viagem</label>
+          <label><input type="checkbox" data-wa-field="data_cadastro" checked /> Cadastro</label>
+          <label><input type="checkbox" data-wa-field="data_embarque" /> Embarque</label>
+          <label><input type="checkbox" data-wa-field="placa" /> Placa</label>
+          <label><input type="checkbox" data-wa-field="valor_frete" checked /> Frete</label>
+          <label><input type="checkbox" data-wa-field="valor_adiantamento" checked /> Adiantamento</label>
+          <label><input type="checkbox" data-wa-field="valor_saldo" checked /> Saldo</label>
+          <label><input type="checkbox" data-wa-field="valor_pedagio" /> Ped&aacute;gio</label>
+          <label><input type="checkbox" data-wa-field="valor_total" checked /> Total</label>
+        </div>
+      </section>
+
+      <section id="summary" class="summary hidden"></section>
+
+      <section id="page-tabs" class="page-tabs hidden"></section>
+
+      <section class="table-panel">
+        <div class="table-wrap">
+          <table id="results-table" class="results-table hidden">
+            <thead>
+              <tr>
+                <th>P&aacute;gina</th>
+                <th>Documento</th>
+                <th>ID viagem</th>
+                <th>Cadastro</th>
+                <th>Embarque</th>
+                <th>Placa</th>
+                <th>Frete</th>
+                <th>Adiantamento</th>
+                <th>Saldo</th>
+                <th>Ped&aacute;gio</th>
+                <th>Total</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+  </html>

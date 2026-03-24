@@ -3,6 +3,6 @@ services:
     name: extrator-pdf-interno
     env: node
     plan: free
-    buildCommand: npm install
+    buildCommand: npm install --include=optional
     startCommand: npm start
     autoDeploy: true
