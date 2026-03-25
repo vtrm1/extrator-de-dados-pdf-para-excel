@@ -4,6 +4,12 @@ const XLSX = require("xlsx");
 const path = require("path");
 
 const { extractTripsFromPdf, fixMojibake } = require("./parser");
+const {
+  parseTransportRows,
+  parseExtratoPdf,
+  parseExcelFile,
+  reconcileData,
+} = require("./reconcile");
 
 const app = express();
 const upload = multer({ storage: multer.memoryStorage() });
@@ -54,6 +60,9 @@ app.use((req, res, next) => {
     res.setHeader("Cache-Control", "no-store");
   }
   next();
+});
+app.get("/favicon.ico", (_req, res) => {
+  res.status(204).end();
 });
 app.use(express.static(path.join(__dirname, "..", "public")));
 
@@ -128,6 +137,49 @@ app.post("/api/export", (req, res) => {
   );
   return res.send(buffer);
 });
+
+app.post(
+  "/api/reconcile",
+  upload.fields([
+    { name: "extratoPdf", maxCount: 1 },
+    { name: "excelFile", maxCount: 1 },
+  ]),
+  async (req, res) => {
+    try {
+      const extratoFile = req.files?.extratoPdf?.[0];
+      const excelFile = req.files?.excelFile?.[0];
+      const transportRows = JSON.parse(req.body?.transportRows || "[]");
+
+      if (!extratoFile) {
+        return res.status(400).json({
+          error: "Envie o PDF do extrato.",
+        });
+      }
+
+      const parsedTransport = parseTransportRows(transportRows);
+      const parsedExtrato = await parseExtratoPdf(extratoFile.buffer, "2026");
+      const parsedExcel = excelFile ? parseExcelFile(excelFile.buffer) : [];
+      const result = reconcileData(parsedTransport, parsedExtrato, parsedExcel);
+
+      return res.json({
+        summary: result.summary,
+        rows: result.rows,
+        rawExcel: result.rawExcel || [],
+        excelDebug: result.excelDebug,
+        sourceCounts: {
+          transport: parsedTransport.length,
+          extrato: parsedExtrato.length,
+          excel: parsedExcel.rows ? parsedExcel.rows.length : 0,
+        },
+      });
+    } catch (error) {
+      return res.status(500).json({
+        error: "Falha ao conciliar dados.",
+        details: error.message,
+      });
+    }
+  }
+);
 
 if (require.main === module) {
   app.listen(port, () => {

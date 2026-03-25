@@ -3,15 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Extrator de PDF</title>
-    <meta name="theme-color" content="#0b6e4f" />
-    <meta name="mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-    <meta name="apple-mobile-web-app-title" content="Extrator PDF" />
-    <link rel="manifest" href="/manifest.webmanifest" />
-    <link rel="icon" type="image/svg+xml" href="/icons/icon.svg" />
-    <link rel="apple-touch-icon" href="/icons/icon.svg" />
+    <title>PDF Sis | Data Extractor & Reconciler</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
@@ -75,30 +70,97 @@
 
       <section id="page-tabs" class="page-tabs hidden"></section>
 
-      <section class="table-panel">
-        <div class="table-wrap">
-          <table id="results-table" class="results-table hidden">
-            <thead>
-              <tr>
-                <th>P&aacute;gina</th>
-                <th>Documento</th>
-                <th>ID viagem</th>
-                <th>Cadastro</th>
-                <th>Embarque</th>
-                <th>Placa</th>
-                <th>Frete</th>
-                <th>Adiantamento</th>
-                <th>Saldo</th>
-                <th>Ped&aacute;gio</th>
-                <th>Total</th>
+      <section class="panel reconcile-panel">
+        <h2>Conferencia com extrato e Excel</h2>
+        <p class="intro reconcile-intro">
+          Compare os fretes do PDF de viagens com o extrato do cartao. A planilha (data e frete) e opcional.
+        </p>
+        <form id="reconcile-form" class="upload-form">
+          <label class="file-input">
+            <span>Extrato PDF</span>
+            <input id="extrato-input" type="file" accept="application/pdf" required />
+          </label>
+          <label class="file-input">
+            <span>Planilha Excel (opcional)</span>
+            <input id="excel-input" type="file" accept=".xlsx,.xls,.csv" />
+          </label>
+          <button id="reconcile-button" type="submit">Conciliar</button>
+        </form>
+        <div id="reconcile-status" class="status"></div>
+        <div class="reconcile-help">
+          PDF Viagem usa ADT/SDO quando existir (e Frete quando nao existir parcela). Extrato e Excel comparam por Data + Valor.
+          Clique em uma linha da conferencia para destacar os itens correspondentes nas tabelas extraidas.
+        </div>
+        <label class="select-wrap reconcile-filter">
+          <span>Filtro da conferencia</span>
+          <select id="reconcile-filter">
+            <option value="all">Todos</option>
+            <option value="match">Somente match</option>
+            <option value="warn">Somente pendencias</option>
+            <option value="error">Somente divergentes</option>
+          </select>
+        </label>
+        <section id="reconcile-summary" class="summary hidden"></section>
+      </section>
+
+      <section class="compare-grid">
+        <section class="table-panel">
+          <h3 class="table-title">Dados PDF</h3>
+          <div class="table-wrap">
+            <table id="results-table" class="results-table hidden">
+              <thead>
+                <tr>
+                  <th>P&aacute;gina</th>
+                  <th>Documento</th>
+                  <th>ID viagem</th>
+                  <th>Cadastro</th>
+                  <th>Embarque</th>
+                  <th>Placa</th>
+                  <th>Frete</th>
+                  <th>Adiantamento</th>
+                  <th>Saldo</th>
+                  <th>Ped&aacute;gio</th>
+                  <th>Total</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="table-panel">
+          <h3 class="table-title">Conferencia</h3>
+          <div class="table-wrap">
+            <table id="reconcile-table" class="results-table hidden">
+              <thead>
+                <tr>
+                <th>Data</th>
+                <th>Valor</th>
+                <th>Status</th>
               </tr>
             </thead>
             <tbody></tbody>
           </table>
         </div>
       </section>
+
+      <section class="table-panel">
+        <h3 class="table-title">Dados Excel</h3>
+        <div class="table-wrap">
+          <table id="excel-table" class="results-table hidden">
+            <thead>
+              <tr>
+                <th>Data</th>
+                <th>Valor</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+      </section>
     </main>
 
     <script src="/app.js"></script>
   </body>
-  </html>
+</html>
