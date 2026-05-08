@@ -70,10 +70,12 @@ app.post("/api/parse", upload.array("pdf"), async (req, res) => {
     return res.status(400).json({ error: "Envie pelo menos um arquivo PDF." });
   }
 
+  const password = req.body.password || "";
+
   try {
     const results = await Promise.all(
       req.files.map(async (file) => {
-        const parsed = await extractTripsFromPdf(file.buffer);
+        const parsed = await extractTripsFromPdf(file.buffer, password);
         const fileName = decodeFileName(file.originalname);
         // Marcamos a origem de cada linha para facilitar rastreamento em multi-upload
         parsed.rows.forEach(row => row.origem = fileName);
@@ -100,6 +102,9 @@ app.post("/api/parse", upload.array("pdf"), async (req, res) => {
       }))
     });
   } catch (error) {
+    if (error.message === "ENCRYPTED") {
+      return res.status(401).json({ error: "Password required", code: "ENCRYPTED" });
+    }
     return res.status(500).json({
       error: "Nao foi possivel processar os PDFs.",
       details: error.message
@@ -165,6 +170,7 @@ app.post(
       const extratoFile = req.files?.extratoPdf?.[0];
       const excelFile = req.files?.excelFile?.[0];
       const transportRows = JSON.parse(req.body?.transportRows || "[]");
+      const password = req.body?.password || "";
 
       if (!extratoFile) {
         return res.status(400).json({
@@ -173,7 +179,7 @@ app.post(
       }
 
       const parsedTransport = parseTransportRows(transportRows);
-      const parsedExtrato = await parseExtratoPdf(extratoFile.buffer, "2026");
+      const parsedExtrato = await parseExtratoPdf(extratoFile.buffer, "2026", password);
       const parsedExcel = excelFile ? parseExcelFile(excelFile.buffer) : [];
       const result = reconcileData(parsedTransport, parsedExtrato, parsedExcel);
 
@@ -189,6 +195,9 @@ app.post(
         },
       });
     } catch (error) {
+      if (error.message === "ENCRYPTED") {
+        return res.status(401).json({ error: "Password required", code: "ENCRYPTED" });
+      }
       return res.status(500).json({
         error: "Falha ao conciliar dados.",
         details: error.message,

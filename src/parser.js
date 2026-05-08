@@ -164,12 +164,21 @@ function splitIntoBlocks(text) {
     .filter(Boolean);
 }
 
-async function extractTripsFromPdf(buffer) {
+async function extractTripsFromPdf(buffer, password = "") {
   const { PDFParse } = require("pdf-parse");
-  const parser = new PDFParse({ data: buffer });
 
+  const parser = new PDFParse({ data: buffer, password });
   try {
-    const result = await parser.getText();
+    let result;
+    try {
+      result = await parser.getText();
+    } catch (error) {
+      if (error.name === "PasswordException" || String(error.message).includes("Password") || String(error.message).includes("encrypted")) {
+        throw new Error("ENCRYPTED");
+      }
+      throw error;
+    }
+    
     const pages = result.pages.map((page) => ({
       page_number: page.num,
       rows: [],

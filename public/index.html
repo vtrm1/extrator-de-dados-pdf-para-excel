@@ -238,7 +238,30 @@
           <div class="table-modal-body" id="table-modal-body"></div>
         </div>
       </div>
+      </div>
     </main>
+
+    <!-- Password Modal -->
+    <div id="password-modal-overlay" class="modal-overlay hidden">
+      <div class="modal-content" style="max-width: 400px;">
+        <header class="modal-header">
+          <h2 id="password-modal-title">Senha Necess&aacute;ria</h2>
+          <button id="password-modal-close" class="modal-close">&times;</button>
+        </header>
+        <div class="modal-body">
+          <p style="color:var(--muted); font-size:0.9rem; margin-bottom: 20px;">
+            Este arquivo est&aacute; protegido por senha. Por favor, digite a senha para continuar a leitura.
+          </p>
+          <div class="input-group">
+            <input type="password" id="pdf-password-input" placeholder="Digite a senha do PDF" style="width: 100%; padding: 12px; border: 1px solid var(--line); border-radius: 8px; font-size: 1rem;">
+          </div>
+          <div style="margin-top: 24px; display: flex; justify-content: flex-end; gap: 12px;">
+            <button id="password-modal-cancel" class="secondary-btn">Cancelar</button>
+            <button id="password-modal-submit" class="primary">Confirmar</button>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <!-- History Modal -->
     <div id="history-modal-overlay" class="modal-overlay hidden">

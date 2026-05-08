@@ -154,10 +154,19 @@ function parseTransportRows(rows) {
   return out;
 }
 
-async function parseExtratoPdf(buffer, yearFallback) {
-  const parser = new PDFParse({ data: buffer });
+async function parseExtratoPdf(buffer, yearFallback, password = "") {
+  const parser = new PDFParse({ data: buffer, password });
+  let result;
   try {
-    const result = await parser.getText();
+    result = await parser.getText();
+  } catch (error) {
+    if (error.name === "PasswordException" || String(error.message).includes("Password") || String(error.message).includes("encrypted")) {
+      throw new Error("ENCRYPTED");
+    }
+    throw error;
+  }
+  
+  try {
     const text = result.text.replace(/\r/g, "");
     const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);
 

@@ -107,6 +107,46 @@ let currentReconcileRows = [];
 let currentExcelRows = []; // Raw rows from backend
 let selectedReconcileKey = null;
 
+let currentPassword = "";
+let pendingPasswordAction = null;
+
+// Password Modal Elements
+const passwordModalOverlay = document.querySelector("#password-modal-overlay");
+const passwordModalClose = document.querySelector("#password-modal-close");
+const passwordModalCancel = document.querySelector("#password-modal-cancel");
+const passwordModalSubmit = document.querySelector("#password-modal-submit");
+const pdfPasswordInput = document.querySelector("#pdf-password-input");
+
+function openPasswordModal() {
+  pdfPasswordInput.value = "";
+  passwordModalOverlay.classList.remove("hidden");
+  setTimeout(() => pdfPasswordInput.focus(), 100);
+}
+
+function closePasswordModal() {
+  passwordModalOverlay.classList.add("hidden");
+}
+
+function handlePasswordCancel() {
+  currentPassword = "";
+  closePasswordModal();
+  setStatus("A\u00e7\u00e3o cancelada (senha n\u00e3o informada).", "error");
+  setReconcileStatus("Confer\u00eancia cancelada (senha n\u00e3o informada).", "error");
+}
+
+if (passwordModalClose) passwordModalClose.addEventListener("click", handlePasswordCancel);
+if (passwordModalCancel) passwordModalCancel.addEventListener("click", handlePasswordCancel);
+if (passwordModalSubmit) {
+  passwordModalSubmit.addEventListener("click", () => {
+    currentPassword = pdfPasswordInput.value;
+    closePasswordModal();
+    if (pendingPasswordAction) pendingPasswordAction();
+  });
+  pdfPasswordInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") passwordModalSubmit.click();
+  });
+}
+
 // Record count badges
 const countPdf = document.querySelector("#count-pdf");
 const countReconcile = document.querySelector("#count-reconcile");
@@ -226,6 +266,9 @@ function buildFormDataFromSelection() {
   const data = new FormData();
   for (const file of input.files) {
     data.append("pdf", file);
+  }
+  if (currentPassword) {
+    data.append("password", currentPassword);
   }
   return data;
 }
@@ -727,6 +770,7 @@ form.addEventListener("submit", async (event) => {
     const payload = await response.json().catch(() => ({}));
 
     if (!response.ok) {
+      if (payload.code === "ENCRYPTED") throw new Error("ENCRYPTED");
       throw new Error(payload.error || "Falha ao processar.");
     }
 
@@ -759,7 +803,15 @@ form.addEventListener("submit", async (event) => {
       `PDF processado com ${totalRows} registros em ${totalPages} p\u00e1ginas.`,
       "success"
     );
+    setLoading(submitButton, false);
   } catch (error) {
+    if (error.message === "ENCRYPTED") {
+      setLoading(submitButton, false);
+      pendingPasswordAction = () => form.dispatchEvent(new Event("submit", { cancelable: true }));
+      openPasswordModal();
+      return;
+    }
+    
     currentRows = [];
     currentPages = [];
     renderPageFilter([]);
@@ -768,7 +820,6 @@ form.addEventListener("submit", async (event) => {
     summary.classList.add("hidden");
     whatsappFields.classList.add("hidden");
     setStatus(error.message || "Falha ao processar o arquivo.", "error");
-  } finally {
     setLoading(submitButton, false);
   }
 });
@@ -1149,6 +1200,9 @@ reconcileForm.addEventListener("submit", async (event) => {
     data.append("excelFile", excelInput.files[0]);
   }
   data.append("transportRows", JSON.stringify(currentRows));
+  if (currentPassword) {
+    data.append("password", currentPassword);
+  }
 
   try {
     const response = await fetch("/api/reconcile", {
@@ -1157,6 +1211,7 @@ reconcileForm.addEventListener("submit", async (event) => {
     });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
+      if (payload.code === "ENCRYPTED") throw new Error("ENCRYPTED");
       throw new Error(payload.error || "Falha na conciliacao.");
     }
 
@@ -1194,7 +1249,15 @@ reconcileForm.addEventListener("submit", async (event) => {
       `Conferencia concluida (${modo}): ${payload.summary.conciliados} conciliados, ${payload.summary.divergentes} divergentes.`,
       payload.sourceCounts?.excel === 0 && excelInput.files[0] ? "warn" : "success"
     );
+    setLoading(document.querySelector("#reconcile-button"), false);
   } catch (error) {
+    if (error.message === "ENCRYPTED") {
+      setLoading(document.querySelector("#reconcile-button"), false);
+      pendingPasswordAction = () => reconcileForm.dispatchEvent(new Event("submit", { cancelable: true }));
+      openPasswordModal();
+      return;
+    }
+
     reconcileSummary.classList.add("hidden");
     currentReconcileRows = [];
     currentExcelRows = [];
@@ -1202,7 +1265,6 @@ reconcileForm.addEventListener("submit", async (event) => {
     renderReconcileTable([]);
     renderExcelTable([]);
     setReconcileStatus(error.message || "Falha na conciliacao.", "error");
-  } finally {
     setLoading(document.querySelector("#reconcile-button"), false);
   }
 });
