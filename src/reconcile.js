@@ -354,12 +354,16 @@ function reconcileData(transportRows, extratoRows, excelResult) {
   [groupByKey(transportRows, "transport"), groupByKey(extratoRows, "extrato"), groupByKey(excelRows, "excel")].forEach((sourceMap) => {
     sourceMap.forEach((value, key) => {
       if (!map.has(key)) {
-        map.set(key, { ...value });
+        map.set(key, { ...value, origens: value.origens ? new Set(value.origens) : new Set() });
       } else {
         const current = map.get(key);
         current.transport += value.transport;
         current.extrato += value.extrato;
         current.excel += value.excel;
+        if (value.origens) {
+          if (!current.origens) current.origens = new Set();
+          value.origens.forEach(o => current.origens.add(o));
+        }
       }
     });
   });
@@ -372,20 +376,15 @@ function reconcileData(transportRows, extratoRows, excelResult) {
       const hasExcel = row.excel > 0;
 
       if (!hasExcelSource) {
-        if (hasTransport && hasExtrato && row.transport === row.extrato) {
+        if (hasTransport && hasExtrato) {
           status = "MATCH_PDF_EXTRATO";
-        } else if (hasTransport && hasExtrato) {
-          status = "MATCH_PARCIAL_PDF_EXTRATO";
         } else if (hasTransport && !hasExtrato) {
           status = "SEM_EXTRATO";
         } else if (!hasTransport && hasExtrato) {
           status = "SEM_PDF_VIAGEM";
         }
       } else if (hasTransport && hasExtrato && hasExcel) {
-        status =
-          row.transport === row.extrato && row.extrato === row.excel
-            ? "CONCILIADO_3_FONTES"
-            : "MATCH_3_FONTES_PARCIAL";
+        status = "CONCILIADO_3_FONTES";
       } else if (hasTransport && hasExtrato && !hasExcel) {
         status = "MATCH_PDF_EXTRATO_SEM_EXCEL";
       } else if (hasTransport && hasExcel && !hasExtrato) {
@@ -399,9 +398,9 @@ function reconcileData(transportRows, extratoRows, excelResult) {
       } else if (!hasTransport && !hasExtrato && hasExcel) {
         status = "SO_EXCEL";
       }
-      return { ...row, status };
+      return { ...row, status, origens: row.origens ? Array.from(row.origens).join(", ") : "" };
     })
-    .sort((a, b) => (a.date === b.date ? a.amount - b.amount : a.date.localeCompare(b.date)));
+    .sort((a, b) => b.amount - a.amount);
 
   const summary = rows.reduce(
     (acc, row) => {

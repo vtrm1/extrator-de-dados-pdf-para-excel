@@ -1271,3 +1271,15 @@ button.loading {
     padding: 0;
   }
 }
+
+ / *   S e l e c t i o n   H i g h l i g h t s   * / 
+ . r e c o n c i l e - r o w . s e l e c t e d   t d , 
+ . l i n k e d - r o w - m a t c h   t d   { 
+     b a c k g r o u n d - c o l o r :   v a r ( - - a c c e n t - s o f t )   ! i m p o r t a n t ; 
+     b o x - s h a d o w :   i n s e t   4 p x   0   0   v a r ( - - a c c e n t ) ; 
+     c o l o r :   v a r ( - - a c c e n t ) ; 
+     f o n t - w e i g h t :   6 0 0 ; 
+     t r a n s i t i o n :   a l l   0 . 2 s   e a s e ; 
+ } 
+  
+ 
