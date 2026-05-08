@@ -344,12 +344,10 @@ function renderTable(rows) {
         if (isMismatch) rowClass = "row-warning";
 
         if (selectedReconcileKey) {
-          const rowDate = dateToIso(row.data_cadastro || row.data_embarque);
-          if (rowDate === selectedReconcileKey.date) {
-            const rowAmounts = getTransportAmountsForMatch(row);
-            const matchesAmount = rowAmounts.some(amt => Number(amt).toFixed(2) === selectedReconcileKey.amount);
-            rowClass = matchesAmount ? "linked-row-match" : "linked-row-mismatch";
-            console.log("History log: Row linked, class updated.");
+          const rowAmounts = getTransportAmountsForMatch(row);
+          const matchesAmount = rowAmounts.some(amt => Number(amt).toFixed(2) === selectedReconcileKey.amount);
+          if (matchesAmount) {
+            rowClass = "linked-row-match";
           }
         }
 
@@ -360,7 +358,9 @@ function renderTable(rows) {
         totalGeral += parseBrCurrencyToNumber(row.valor_total) || 0;
 
         return `
-        <tr class="${rowClass}">
+        <tr class="${rowClass}" data-adt="${adtVal || 0}" data-sdo="${sdoVal || 0}" data-frete="${parseBrCurrencyToNumber(row.valor_frete) || 0}">
+          <td style="text-align: center;"><input type="checkbox" class="row-checkbox"></td>
+          <td>${row.data_cadastro || row.data_embarque || ""}</td>
           <td>${row.pagina_pdf || ""}</td>
           <td>${row.numero_documento || ""}</td>
           <td>${row.id_viagem || ""}</td>
@@ -386,6 +386,63 @@ function renderTable(rows) {
   if (footerAdt) footerAdt.textContent = currency.format(totalAdt);
   if (footerSdo) footerSdo.textContent = currency.format(totalSdo);
   if (footerTotal) footerTotal.textContent = currency.format(totalGeral);
+
+  // Setup Checkboxes logic
+  const checkAll = document.querySelector("#select-all-pdf");
+  const checkboxes = tbody.querySelectorAll(".row-checkbox");
+  const panel = document.querySelector("#selection-panel");
+  const sumDisplay = document.querySelector("#selection-sum");
+  const searchBtn = document.querySelector("#btn-search-selection");
+
+  function updateSelection() {
+    let sum = 0;
+    let anyChecked = false;
+    checkboxes.forEach(chk => {
+      if (chk.checked) {
+        anyChecked = true;
+        const tr = chk.closest("tr");
+        const adt = Number(tr.dataset.adt) || 0;
+        const sdo = Number(tr.dataset.sdo) || 0;
+        const frete = Number(tr.dataset.frete) || 0;
+        if (adt > 0 || sdo > 0) {
+          sum += adt + sdo;
+        } else {
+          sum += frete;
+        }
+      }
+    });
+
+    if (panel) {
+      panel.classList.toggle("hidden", !anyChecked);
+    }
+    if (sumDisplay) {
+      sumDisplay.textContent = currency.format(sum);
+    }
+    // Set target amount for search
+    if (anyChecked) {
+      selectedReconcileKey = { amount: sum.toFixed(2) };
+    } else {
+      selectedReconcileKey = null;
+    }
+  }
+
+  if (checkAll) {
+    checkAll.addEventListener("change", (e) => {
+      checkboxes.forEach(chk => chk.checked = e.target.checked);
+      updateSelection();
+    });
+  }
+
+  checkboxes.forEach(chk => chk.addEventListener("change", updateSelection));
+
+  if (searchBtn) {
+    searchBtn.onclick = () => {
+      renderReconcileTable(currentReconcileRows);
+      renderExcelTable(currentExcelRows);
+      // Optional scroll
+      document.querySelector("#reconcile-table")?.scrollIntoView({ behavior: "smooth" });
+    };
+  }
 }
 
 function renderExcelTable(rows) {
@@ -398,13 +455,10 @@ function renderExcelTable(rows) {
       (row) => {
         let rowClass = "";
         if (selectedReconcileKey) {
-          const rowDate = String(row.date || "").trim();
-          const targetDate = String(selectedReconcileKey.date || "").trim();
-          
-          if (rowDate === targetDate) {
-            const matchesAmount = Number(row.amount || 0).toFixed(2) === selectedReconcileKey.amount;
-            rowClass = matchesAmount ? "linked-row-match" : "linked-row-mismatch";
-            console.log("Excel match found!", rowDate, row.amount, rowClass);
+          const matchesAmount = Number(row.amount || 0).toFixed(2) === selectedReconcileKey.amount;
+          if (matchesAmount) {
+            rowClass = "linked-row-match";
+            console.log("Excel match found!", row.amount, rowClass);
           }
         }
         return `
@@ -584,10 +638,7 @@ function renderReconcileTable(rows) {
       if (severity[ma.rowClass] !== severity[mb.rowClass]) {
         return severity[ma.rowClass] - severity[mb.rowClass];
       }
-      if (a.date !== b.date) {
-        return String(a.date).localeCompare(String(b.date));
-      }
-      return Number(a.amount || 0) - Number(b.amount || 0);
+      return Number(b.amount || 0) - Number(a.amount || 0); // Sort largest amounts first
     });
 
   // Calculate pending total
@@ -603,12 +654,18 @@ function renderReconcileTable(rows) {
       const meta = reconcileStatusMeta(row.status || "DIVERGENTE");
       const amountFixed = Number(row.amount || 0).toFixed(2);
       const isSelected =
-        selectedReconcileKey &&
-        selectedReconcileKey.date === row.date &&
-        selectedReconcileKey.amount === amountFixed;
+        selectedReconcileKey && selectedReconcileKey.amount === amountFixed;
+        
+      const origensTag = row.origens 
+        ? `<span style="font-size: 0.75rem; background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px; border: 1px solid var(--line); margin-left: 8px;">${row.origens}</span>` 
+        : "";
+
       return `
-      <tr class="reconcile-row ${meta.rowClass} ${isSelected ? "selected" : ""}" data-date="${row.date}" data-amount="${amountFixed}">
-        <td>${currency.format(row.amount || 0)}</td>
+      <tr class="reconcile-row ${meta.rowClass} ${isSelected ? "selected" : ""}" data-amount="${amountFixed}">
+        <td>
+          ${currency.format(row.amount || 0)}
+          ${origensTag}
+        </td>
         <td><span class="status-badge ${meta.badgeClass}">${meta.label}</span></td>
       </tr>
     `;
@@ -623,25 +680,23 @@ function renderReconcileTable(rows) {
 
   reconcileTbody.querySelectorAll("tr").forEach((tr) => {
     tr.addEventListener("click", () => {
-      const date = tr.dataset.date;
       const amount = tr.dataset.amount;
-      if (!date || !amount) {
+      if (!amount) {
         return;
       }
 
       if (
         selectedReconcileKey &&
-        selectedReconcileKey.date === date &&
         selectedReconcileKey.amount === amount
       ) {
         selectedReconcileKey = null;
       } else {
-        selectedReconcileKey = { date, amount };
+        selectedReconcileKey = { amount };
       }
 
       renderReconcileTable(currentReconcileRows);
       renderTable(getVisibleRows());
-      renderExcelTable(currentExcelRows); // NEW: Re-render excel with highlights
+      renderExcelTable(currentExcelRows);
 
       // Auto-scroll to first matching rows in both tables
       if (selectedReconcileKey) {

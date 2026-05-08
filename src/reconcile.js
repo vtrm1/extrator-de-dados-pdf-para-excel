@@ -85,28 +85,33 @@ function excelDateToISO(value) {
   return "";
 }
 
-function keyFrom(dateIso, amount) {
-  return `${dateIso}|${Number(amount).toFixed(2)}`;
+function keyFrom(amount) {
+  return `${Number(amount).toFixed(2)}`;
 }
 
 function groupByKey(rows, source) {
   const map = new Map();
   rows.forEach((row) => {
-    if (!row.date || row.amount == null) {
+    if (row.amount == null || row.amount <= 0) {
       return;
     }
-    const key = keyFrom(row.date, row.amount);
+    const key = keyFrom(row.amount);
     if (!map.has(key)) {
       map.set(key, {
         key,
-        date: row.date,
+        date: row.date || "", // Keep the first found date as informative
         amount: row.amount,
         transport: 0,
         extrato: 0,
         excel: 0,
+        origens: new Set()
       });
     }
-    map.get(key)[source] += 1;
+    const data = map.get(key);
+    data[source] += 1;
+    if (source === "transport" && row.origem) {
+      data.origens.add(row.origem);
+    }
   });
   return map;
 }

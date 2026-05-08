@@ -1,4 +1,4 @@
-const CACHE_NAME = "pdf-sis-v1";
+const CACHE_NAME = "pdf-sis-v2";
 const APP_SHELL = ["/", "/styles.css", "/app.js", "/manifest.webmanifest", "/icons/icon.svg"];
 
 self.addEventListener("install", (event) => {
