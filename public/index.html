@@ -141,15 +141,9 @@
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
             </button>
           </h3>
-          <div style="display: flex; gap: 12px; align-items: center; margin-bottom: 12px;">
-            <div class="search-wrap" style="margin-bottom: 0; flex: 1;">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;opacity:0.4;"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-              <input type="text" id="table-search" class="search-input" placeholder="Buscar por placa ou documento...">
-            </div>
-            <div id="selection-panel" class="hidden" style="display: flex; gap: 8px; align-items: center; background: var(--bg-secondary); padding: 8px 12px; border-radius: 8px; border: 1px solid var(--line); font-size: 0.85rem; font-weight: 600;">
-              <span>Soma: <span id="selection-sum" style="color: var(--accent);">R$ 0,00</span></span>
-              <button id="btn-search-selection" class="primary" style="padding: 6px 12px; font-size: 0.8rem;">Buscar na Confer&ecirc;ncia</button>
-            </div>
+          <div class="search-wrap">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;opacity:0.4;"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input type="text" id="table-search" class="search-input" placeholder="Buscar por placa ou documento...">
           </div>
           <div class="table-wrap">
             <table id="results-table" class="results-table hidden">
@@ -203,6 +197,7 @@
                 <option value="SDO">Somente Saldo (SDO)</option>
               </select>
             </div>
+            <button id="btn-clear-reconcile-filters" class="secondary" style="padding: 8px 16px; font-size: 0.85rem; border-radius: 8px;">Limpar Filtros</button>
           </div>
           <div class="table-wrap">
             <table id="reconcile-table" class="results-table hidden">

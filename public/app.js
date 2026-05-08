@@ -107,6 +107,7 @@ let currentReconcileRows = [];
 let currentExcelRows = []; // Raw rows from backend
 let selectedReconcileKey = null;
 let selectedCheckboxAmounts = new Set();
+let selectedTripIds = new Set();
 let reconcileTypeFilter = "ALL";
 
 let currentPassword = "";
@@ -359,9 +360,11 @@ function renderTable(rows) {
         totalSdo += sdoVal || 0;
         totalGeral += parseBrCurrencyToNumber(row.valor_total) || 0;
 
+        const isTripSelected = typeof selectedTripIds !== "undefined" && selectedTripIds.has(row.id_viagem);
+
         return `
-        <tr class="${rowClass}" data-adt="${adtVal || 0}" data-sdo="${sdoVal || 0}" data-frete="${parseBrCurrencyToNumber(row.valor_frete) || 0}">
-          <td style="text-align: center;"><input type="checkbox" class="row-checkbox"></td>
+        <tr class="${rowClass}" data-adt="${adtVal || 0}" data-sdo="${sdoVal || 0}" data-frete="${parseBrCurrencyToNumber(row.valor_frete) || 0}" data-trip-id="${row.id_viagem}">
+          <td style="text-align: center;"><input type="checkbox" class="row-checkbox" ${isTripSelected ? 'checked' : ''}></td>
           <td>${row.data_cadastro || row.data_embarque || ""}</td>
           <td>${row.pagina_pdf || ""}</td>
           <td>${row.numero_documento || ""}</td>
@@ -392,17 +395,20 @@ function renderTable(rows) {
   // Setup Checkboxes logic
   const checkAll = document.querySelector("#select-all-pdf");
   const checkboxes = tbody.querySelectorAll(".row-checkbox");
-  const panel = document.querySelector("#selection-panel");
-  const sumDisplay = document.querySelector("#selection-sum");
-  const searchBtn = document.querySelector("#btn-search-selection");
 
   function updateSelection() {
+    selectedCheckboxAmounts.clear();
+    selectedTripIds.clear();
     let sum = 0;
     let anyChecked = false;
+
     checkboxes.forEach(chk => {
       if (chk.checked) {
         anyChecked = true;
         const tr = chk.closest("tr");
+        const tripId = tr.dataset.tripId;
+        if (tripId) selectedTripIds.add(tripId);
+
         const adt = Number(tr.dataset.adt) || 0;
         const sdo = Number(tr.dataset.sdo) || 0;
         const frete = Number(tr.dataset.frete) || 0;
@@ -418,18 +424,11 @@ function renderTable(rows) {
       }
     });
 
-    if (panel) {
-      panel.classList.toggle("hidden", !anyChecked);
-    }
-    if (sumDisplay) {
-      sumDisplay.textContent = currency.format(sum);
-    }
-    // Set target amount for search
+    // Set target amount for search (sum)
     if (anyChecked) {
       selectedReconcileKey = { amount: sum.toFixed(2) };
     } else {
       selectedReconcileKey = null;
-      selectedCheckboxAmounts.clear();
     }
 
     // NEW: Filter reconcile table based on selection
@@ -444,15 +443,6 @@ function renderTable(rows) {
   }
 
   checkboxes.forEach(chk => chk.addEventListener("change", updateSelection));
-
-  if (searchBtn) {
-    searchBtn.onclick = () => {
-      renderReconcileTable(currentReconcileRows);
-      renderExcelTable(currentExcelRows);
-      // Optional scroll
-      document.querySelector("#reconcile-table")?.scrollIntoView({ behavior: "smooth" });
-    };
-  }
 }
 
 function renderExcelTable(rows) {
@@ -1361,6 +1351,25 @@ if (reconcileTypeFilterSelect) {
   reconcileTypeFilterSelect.addEventListener("change", (e) => {
     reconcileTypeFilter = e.target.value;
     renderReconcileTable(currentReconcileRows);
+  });
+}
+
+const clearReconcileFiltersBtn = document.querySelector("#btn-clear-reconcile-filters");
+if (clearReconcileFiltersBtn) {
+  clearReconcileFiltersBtn.addEventListener("click", () => {
+    selectedCheckboxAmounts.clear();
+    selectedTripIds.clear();
+    selectedReconcileKey = null;
+    reconcileTypeFilter = "ALL";
+    if (reconcileTypeFilterSelect) reconcileTypeFilterSelect.value = "ALL";
+    
+    // Reset Select All checkbox
+    const checkAll = document.querySelector("#select-all-pdf");
+    if (checkAll) checkAll.checked = false;
+
+    renderTable(currentRows);
+    renderReconcileTable(currentReconcileRows);
+    renderExcelTable(currentExcelRows);
   });
 }
 
