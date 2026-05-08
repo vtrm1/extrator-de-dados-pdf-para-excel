@@ -25,14 +25,13 @@ function buildExportRows(rows) {
     "Pagina PDF": row.pagina_pdf || "",
     Documento: row.numero_documento || "",
     "ID da viagem": row.id_viagem || "",
-    "Data do cadastro": row.data_cadastro || "",
-    "Data do embarque": row.data_embarque || "",
     Placa: row.placa || "",
     Frete: row.valor_frete || "",
     Adiantamento: row.valor_adiantamento || "",
     Saldo: row.valor_saldo || "",
     Pedagio: row.valor_pedagio || "",
     Total: row.valor_total || "",
+    Origem: row.origem || "",
   }));
 }
 
@@ -66,27 +65,44 @@ app.get("/favicon.ico", (_req, res) => {
 });
 app.use(express.static(path.join(__dirname, "..", "public")));
 
-app.post("/api/parse", upload.single("pdf"), async (req, res) => {
-  if (!req.file) {
-    return res.status(400).json({ error: "Envie um arquivo PDF." });
+app.post("/api/parse", upload.array("pdf"), async (req, res) => {
+  if (!req.files || req.files.length === 0) {
+    return res.status(400).json({ error: "Envie pelo menos um arquivo PDF." });
   }
 
   try {
-    const parsed = await extractTripsFromPdf(req.file.buffer);
+    const results = await Promise.all(
+      req.files.map(async (file) => {
+        const parsed = await extractTripsFromPdf(file.buffer);
+        const fileName = decodeFileName(file.originalname);
+        // Marcamos a origem de cada linha para facilitar rastreamento em multi-upload
+        parsed.rows.forEach(row => row.origem = fileName);
+        return { ...parsed, fileName };
+      })
+    );
+
+    const combinedRows = results.flatMap(r => r.rows);
+    const combinedPages = results.flatMap((r, fileIdx) => 
+      r.pages.map(p => ({
+        ...p,
+        page_number: `${fileIdx + 1}-${p.page_number}` 
+      }))
+    );
+
     return res.json({
-      fileName: decodeFileName(req.file.originalname),
-      totalRows: parsed.rows.length,
-      totalPages: parsed.totalPages,
-      rows: parsed.rows,
-      pages: parsed.pages.map((page) => ({
-        page_number: page.page_number,
-        totalRows: page.rows.length,
-      })),
+      fileName: results.length === 1 ? results[0].fileName : "Múltiplos Arquivos",
+      totalRows: combinedRows.length,
+      totalPages: combinedPages.length,
+      rows: combinedRows,
+      pages: combinedPages.map(p => ({
+        page_number: p.page_number,
+        totalRows: p.rows.length
+      }))
     });
   } catch (error) {
     return res.status(500).json({
-      error: "Nao foi possivel processar o PDF.",
-      details: error.message,
+      error: "Nao foi possivel processar os PDFs.",
+      details: error.message
     });
   }
 });
@@ -180,6 +196,29 @@ app.post(
     }
   }
 );
+
+app.post("/api/export-reconcile", (req, res) => {
+  try {
+    const { rows } = req.body;
+    if (!Array.isArray(rows)) return res.status(400).json({ error: "Dados invalidos." });
+    const exportRows = rows.map((r) => ({
+      Valor: r.amount,
+      Status: r.status,
+      "PDF?": r.transport > 0 ? "Sim" : "Nao",
+      "Extrato?": r.extrato > 0 ? "Sim" : "Nao",
+      "Excel?": r.excel > 0 ? "Sim" : "Nao",
+    }));
+    const ws = XLSX.utils.json_to_sheet(exportRows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Conferencia");
+    const buffer = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+    res.setHeader("Content-Disposition", 'attachment; filename="conferencia.xlsx"');
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    return res.send(buffer);
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
 
 if (require.main === module) {
   app.listen(port, () => {

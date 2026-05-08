@@ -256,6 +256,7 @@ function parseExcelFile(buffer) {
       let headerRowIndex = -1;
       let dateColIdx = -1;
       let freteColIdx = -1;
+      let placaColIdx = -1;
 
       for (let i = 0; i < Math.min(rawData.length, 50); i++) {
         const row = rawData[i];
@@ -273,10 +274,16 @@ function parseExcelFile(buffer) {
                  (/valor/i.test(c) && !/tonel/i.test(c) && !/unit/i.test(c));
         });
 
+        const pIdx = row.findIndex((cell) => {
+          const c = String(cell || "").toLowerCase().trim();
+          return ["placa", "placas", "veiculo", "veículo", "caminhão", "caminhao"].includes(c) || /^placa/i.test(c) || /^caminh/i.test(c);
+        });
+
         if (dIdx >= 0 && fIdx >= 0) {
           headerRowIndex = i;
           dateColIdx = dIdx;
           freteColIdx = fIdx;
+          placaColIdx = pIdx;
           break;
         }
       }
@@ -289,9 +296,10 @@ function parseExcelFile(buffer) {
           
           const date = excelDateToISO(row[dateColIdx]);
           const amount = parseBrCurrencyToNumber(row[freteColIdx]);
+          const placa = placaColIdx >= 0 ? String(row[placaColIdx] || "").trim() : "";
           
           if (date && amount != null && amount > 0) {
-            parsedRows.push({ date, amount, originalRow: row });
+            parsedRows.push({ date, amount, placa, originalRow: row });
           }
         }
 
@@ -304,6 +312,7 @@ function parseExcelFile(buffer) {
             headerRow: headerRowIndex + 1,
             dateCol: String(rawData[headerRowIndex][dateColIdx]),
             freteCol: String(rawData[headerRowIndex][freteColIdx]),
+            placaCol: placaColIdx >= 0 ? String(rawData[headerRowIndex][placaColIdx]) : "(não encontrada)",
             rowCount: parsedRows.length
           } 
         };

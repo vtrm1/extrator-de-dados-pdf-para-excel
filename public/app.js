@@ -1,3 +1,41 @@
+console.log("PDF Sis: Script iniciando...");
+
+// ─── History Management ───
+const HISTORY_KEY = "pdf_sis_history";
+const MAX_HISTORY = 10;
+
+function saveToHistory(payload) {
+  try {
+    const history = getHistory();
+    const newItem = {
+      id: Date.now(),
+      timestamp: new Date().toISOString(),
+      fileName: payload.fileName,
+      totalRows: payload.totalRows,
+      rows: payload.rows,
+      pages: payload.pages
+    };
+    const updated = [newItem, ...history.filter(h => h.fileName !== newItem.fileName)].slice(0, MAX_HISTORY);
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(updated));
+  } catch (e) { console.error("History save failed", e); }
+}
+
+function updateHistoryWithReconcile(fileName, reconcileData) {
+  try {
+    const history = getHistory();
+    const index = history.findIndex(h => h.fileName === fileName);
+    if (index !== -1) {
+      history[index].reconcile = reconcileData;
+      localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+    }
+  } catch (e) { console.error("Update history failed", e); }
+}
+
+function getHistory() {
+  try { return JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]"); }
+  catch (e) { return []; }
+}
+
 const form = document.querySelector("#upload-form");
 const input = document.querySelector("#pdf-input");
 const submitButton = document.querySelector("#submit-button");
@@ -14,6 +52,12 @@ const reconcileForm = document.querySelector("#reconcile-form");
 const extratoInput = document.querySelector("#extrato-input");
 const excelInput = document.querySelector("#excel-input");
 const reconcileFilter = document.querySelector("#reconcile-filter");
+const reconcileStart = document.querySelector("#reconcile-start");
+const reconcileEnd = document.querySelector("#reconcile-end");
+const reconcileWhatsAppBtn = document.querySelector("#reconcile-whatsapp");
+const reconcileExportBtn = document.querySelector("#reconcile-export");
+const pendingCard = document.querySelector("#pending-card");
+const totalPendingValue = document.querySelector("#total-pending-value");
 const reconcileStatus = document.querySelector("#reconcile-status");
 const reconcileSummary = document.querySelector("#reconcile-summary");
 const reconcileTable = document.querySelector("#reconcile-table");
@@ -26,6 +70,34 @@ const excelTbody = excelTable.querySelector("tbody");
 const statusBox = document.querySelector("#status");
 const summary = document.querySelector("#summary");
 const actions = document.querySelector("#actions");
+const historyBtn = document.querySelector("#history-btn");
+const tableSearch = document.querySelector("#table-search");
+
+// Table Footer Elements
+const footerFrete = document.querySelector("#footer-frete");
+const footerAdt = document.querySelector("#footer-adt");
+const footerSdo = document.querySelector("#footer-sdo");
+const footerTotal = document.querySelector("#footer-total");
+const tableFooter = document.querySelector("#table-footer");
+
+// History Modal Elements
+const historyModalOverlay = document.querySelector("#history-modal-overlay");
+const historyModalBody = document.querySelector("#history-modal-body");
+const historyModalClose = document.querySelector("#history-modal-close");
+const historyModalFooterClose = historyModalOverlay.querySelector(".secondary-btn");
+const clearHistoryBtn = document.querySelector("#clear-history-btn");
+
+// Dashboard Elements
+const dashboardBtn = document.querySelector("#dashboard-btn");
+const dashboardOverlay = document.querySelector("#dashboard-overlay");
+const dashboardClose = document.querySelector("#dashboard-close");
+const dbTotalPdf = document.querySelector("#db-total-pdf");
+const dbTotalMatch = document.querySelector("#db-total-match");
+const dbTotalPending = document.querySelector("#db-total-pending");
+const dbPendingTbody = document.querySelector("#db-pending-table tbody");
+
+let chartPlatesInstance = null;
+let chartStatusInstance = null;
 
 let currentRows = [];
 let currentFileName = "";
@@ -35,6 +107,21 @@ let currentReconcileRows = [];
 let currentExcelRows = []; // Raw rows from backend
 let selectedReconcileKey = null;
 
+// Record count badges
+const countPdf = document.querySelector("#count-pdf");
+const countReconcile = document.querySelector("#count-reconcile");
+const countExcel = document.querySelector("#count-excel");
+
+// Empty states
+const emptyPdf = document.querySelector("#empty-pdf");
+const emptyReconcile = document.querySelector("#empty-reconcile");
+const emptyExcel = document.querySelector("#empty-excel");
+
+function setLoading(btn, loading) {
+  btn.classList.toggle("loading", loading);
+  btn.disabled = loading;
+}
+
 function setReconcileStatus(message, type = "neutral") {
   reconcileStatus.textContent = fixMojibake(message);
   reconcileStatus.dataset.type = type;
@@ -43,8 +130,6 @@ function setReconcileStatus(message, type = "neutral") {
 const whatsappFieldDefs = [
   { key: "numero_documento", label: "Documento" },
   { key: "id_viagem", label: "ID viagem" },
-  { key: "data_cadastro", label: "Cadastro" },
-  { key: "data_embarque", label: "Embarque" },
   { key: "placa", label: "Placa" },
   { key: "valor_frete", label: "Frete" },
   { key: "valor_adiantamento", label: "Adiantamento" },
@@ -134,27 +219,33 @@ function isExcelRowLinkedToReconcile(row) {
 }
 
 function buildFormDataFromSelection() {
-  if (!selectedFile) {
+  if (!input.files || input.files.length === 0) {
     return null;
   }
 
   const data = new FormData();
-  data.append("pdf", selectedFile);
+  for (const file of input.files) {
+    data.append("pdf", file);
+  }
   return data;
 }
 
-function setSelectedFile(file) {
-  if (!file) {
-    return;
-  }
+function setSelectedFile(files) {
+  if (!files || files.length === 0) return;
 
-  if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
-    setStatus("Selecione um arquivo PDF valido.", "error");
-    return;
+  const count = files.length;
+  if (count === 1) {
+    const file = files[0];
+    if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
+      setStatus("Selecione um arquivo PDF valido.", "error");
+      return;
+    }
+    selectedFile = file; // Backward compatibility
+    setStatus(`Arquivo selecionado: ${fixMojibake(file.name)}`, "neutral");
+  } else {
+    selectedFile = files[0];
+    setStatus(`${count} arquivos selecionados para processamento.`, "neutral");
   }
-
-  selectedFile = file;
-  setStatus(`Arquivo selecionado: ${fixMojibake(file.name)}`, "neutral");
 }
 
 function getSelectedWhatsappFields() {
@@ -194,30 +285,45 @@ function buildWhatsappMessage(rows) {
 
 function renderTable(rows) {
   const safeRows = asArray(rows);
+  const currency = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
+
+  let totalFrete = 0, totalAdt = 0, totalSdo = 0, totalGeral = 0;
 
   tbody.innerHTML = safeRows
     .map(
       (row) => {
         let rowClass = "";
+        
+        // ADT/SDO mismatch validation
+        const adtVal = parseBrCurrencyToNumber(row.valor_adiantamento);
+        const sdoVal = parseBrCurrencyToNumber(row.valor_saldo);
+        const isMismatch = (adtVal > 0 && !sdoVal) || (sdoVal > 0 && !adtVal);
+        if (isMismatch) rowClass = "row-warning";
+
         if (selectedReconcileKey) {
           const rowDate = dateToIso(row.data_cadastro || row.data_embarque);
           if (rowDate === selectedReconcileKey.date) {
             const rowAmounts = getTransportAmountsForMatch(row);
             const matchesAmount = rowAmounts.some(amt => Number(amt).toFixed(2) === selectedReconcileKey.amount);
             rowClass = matchesAmount ? "linked-row-match" : "linked-row-mismatch";
+            console.log("History log: Row linked, class updated.");
           }
         }
+
+        // Totals accumulation
+        totalFrete += parseBrCurrencyToNumber(row.valor_frete) || 0;
+        totalAdt += adtVal || 0;
+        totalSdo += sdoVal || 0;
+        totalGeral += parseBrCurrencyToNumber(row.valor_total) || 0;
 
         return `
         <tr class="${rowClass}">
           <td>${row.pagina_pdf || ""}</td>
           <td>${row.numero_documento || ""}</td>
           <td>${row.id_viagem || ""}</td>
-          <td>${row.data_cadastro || ""}</td>
-          <td>${row.data_embarque || ""}</td>
           <td>${row.placa || ""}</td>
           <td>${row.valor_frete || ""}</td>
-          <td>${row.valor_adiantamento || ""}</td>
+          <td>${row.valor_adiantamento || ""}${isMismatch ? '<span class="warning-icon" title="Parcela faltando?">\u26a0\ufe0f</span>' : ''}</td>
           <td>${row.valor_saldo || ""}</td>
           <td>${row.valor_pedagio || ""}</td>
           <td>${row.valor_total || ""}</td>
@@ -228,6 +334,15 @@ function renderTable(rows) {
     .join("");
 
   table.classList.toggle("hidden", safeRows.length === 0);
+  if (tableFooter) tableFooter.classList.toggle("hidden", safeRows.length === 0);
+  if (emptyPdf) emptyPdf.classList.toggle("hidden", safeRows.length > 0);
+  if (countPdf) countPdf.textContent = safeRows.length > 0 ? safeRows.length : "";
+
+  // Update Footer Totals
+  if (footerFrete) footerFrete.textContent = currency.format(totalFrete);
+  if (footerAdt) footerAdt.textContent = currency.format(totalAdt);
+  if (footerSdo) footerSdo.textContent = currency.format(totalSdo);
+  if (footerTotal) footerTotal.textContent = currency.format(totalGeral);
 }
 
 function renderExcelTable(rows) {
@@ -251,7 +366,7 @@ function renderExcelTable(rows) {
         }
         return `
         <tr class="${rowClass}">
-          <td>${row.date || ""}</td>
+          <td>${row.placa || ""}</td>
           <td>${currency.format(row.amount || 0)}</td>
         </tr>
       `;
@@ -260,8 +375,8 @@ function renderExcelTable(rows) {
     .join("");
 
   excelTable.classList.toggle("hidden", safeRows.length === 0);
-  // Ensure the parent panel is visible too
-  excelTable.closest(".table-panel").classList.toggle("hidden", safeRows.length === 0);
+  if (emptyExcel) emptyExcel.classList.toggle("hidden", safeRows.length > 0);
+  if (countExcel) countExcel.textContent = safeRows.length > 0 ? safeRows.length : "";
 }
 
 function renderSummary(fileName, rows, pages) {
@@ -382,6 +497,22 @@ function reconcileObservation(row) {
   return "Divergencia de conferencia";
 }
 
+function summarizeReconcileForWhatsApp(rows) {
+  const filtered = rows.filter(r => !r.status.startsWith("MATCH") && !r.status.startsWith("CONCILIADO"));
+  if (filtered.length === 0) return "Toda a conferencia bateu! ✅";
+
+  const currency = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
+  let msg = "*Pendencias de Frete*\n\n";
+  
+  filtered.slice(0, 20).forEach(r => {
+    const status = reconcileStatusMeta(r.status).label;
+    msg += `\u2022 ${r.date}: ${currency.format(r.amount)} (${status})\n`;
+  });
+
+  if (filtered.length > 20) msg += `\n... e mais ${filtered.length - 20} itens.`;
+  return msg;
+}
+
 function renderReconcileTable(rows) {
   const currency = new Intl.NumberFormat("pt-BR", {
     style: "currency",
@@ -391,6 +522,13 @@ function renderReconcileTable(rows) {
   const severity = { match: 0, warn: 1, error: 2 };
   const filtered = asArray(rows)
     .filter((row) => {
+      // Date Range Filter
+      const rDate = String(row.date || "");
+      const sDate = reconcileStart.value;
+      const eDate = reconcileEnd.value;
+      if (sDate && rDate < sDate) return false;
+      if (eDate && rDate > eDate) return false;
+
       const meta = reconcileStatusMeta(row.status || "DIVERGENTE");
       if (reconcileFilter.value === "all") {
         return true;
@@ -409,6 +547,14 @@ function renderReconcileTable(rows) {
       return Number(a.amount || 0) - Number(b.amount || 0);
     });
 
+  // Calculate pending total
+  const pendingTotal = filtered
+    .filter(r => !r.status.startsWith("MATCH") && !r.status.startsWith("CONCILIADO"))
+    .reduce((acc, r) => acc + Number(r.amount || 0), 0);
+  
+  totalPendingValue.textContent = currency.format(pendingTotal);
+  pendingCard.classList.toggle("hidden", pendingTotal === 0);
+
   reconcileTbody.innerHTML = filtered
     .map((row) => {
       const meta = reconcileStatusMeta(row.status || "DIVERGENTE");
@@ -419,7 +565,6 @@ function renderReconcileTable(rows) {
         selectedReconcileKey.amount === amountFixed;
       return `
       <tr class="reconcile-row ${meta.rowClass} ${isSelected ? "selected" : ""}" data-date="${row.date}" data-amount="${amountFixed}">
-        <td>${row.date || ""}</td>
         <td>${currency.format(row.amount || 0)}</td>
         <td><span class="status-badge ${meta.badgeClass}">${meta.label}</span></td>
       </tr>
@@ -428,6 +573,10 @@ function renderReconcileTable(rows) {
     .join("");
 
   reconcileTable.classList.toggle("hidden", filtered.length === 0);
+  if (emptyReconcile) emptyReconcile.classList.toggle("hidden", filtered.length > 0);
+  if (countReconcile) countReconcile.textContent = filtered.length > 0 ? filtered.length : "";
+  reconcileWhatsAppBtn.classList.toggle("hidden", filtered.length === 0);
+  reconcileExportBtn.classList.toggle("hidden", filtered.length === 0);
 
   reconcileTbody.querySelectorAll("tr").forEach((tr) => {
     tr.addEventListener("click", () => {
@@ -481,7 +630,17 @@ function buildPagesFromRows(rows) {
 }
 
 function getVisibleRows() {
-  const safeRows = asArray(currentRows);
+  let safeRows = asArray(currentRows);
+
+  // Search Filter
+  const query = (tableSearch.value || "").toLowerCase().trim();
+  if (query) {
+    safeRows = safeRows.filter(row => 
+      String(row.placa || "").toLowerCase().includes(query) ||
+      String(row.numero_documento || "").toLowerCase().includes(query) ||
+      String(row.id_viagem || "").toLowerCase().includes(query)
+    );
+  }
 
   if (pageFilter.value === "all") {
     return safeRows;
@@ -543,19 +702,19 @@ function renderPageTabs(pages) {
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
 
-  if (input.files[0]) {
-    setSelectedFile(input.files[0]);
+  if (input.files.length > 0) {
+    setSelectedFile(input.files);
   }
 
-  if (!selectedFile) {
+  if (!selectedFile && input.files.length === 0) {
     setStatus("Selecione um PDF antes de continuar.", "error");
     return;
   }
 
-  submitButton.disabled = true;
+  setLoading(submitButton, true);
   actions.classList.add("hidden");
   pageTabs.classList.add("hidden");
-  setStatus("Processando o PDF...", "neutral");
+  setStatus("Processando...", "neutral");
 
   const data = buildFormDataFromSelection();
 
@@ -568,16 +727,24 @@ form.addEventListener("submit", async (event) => {
     const payload = await response.json().catch(() => ({}));
 
     if (!response.ok) {
-      throw new Error(payload.error || "Falha ao processar o arquivo.");
+      throw new Error(payload.error || "Falha ao processar.");
     }
 
     currentRows = asArray(payload.rows);
-    currentFileName = fixMojibake(payload.fileName || selectedFile.name || "");
+    currentFileName = fixMojibake(payload.fileName || "Arquivo");
     currentPages = asArray(payload.pages);
 
     if (currentPages.length === 0) {
       currentPages = buildPagesFromRows(currentRows);
     }
+
+    // SAVE TO HISTORY
+    saveToHistory({
+      fileName: currentFileName,
+      totalRows: currentRows.length,
+      rows: currentRows,
+      pages: currentPages
+    });
 
     renderPageFilter(currentPages);
     renderPageTabs(currentPages);
@@ -602,7 +769,7 @@ form.addEventListener("submit", async (event) => {
     whatsappFields.classList.add("hidden");
     setStatus(error.message || "Falha ao processar o arquivo.", "error");
   } finally {
-    submitButton.disabled = false;
+    setLoading(submitButton, false);
   }
 });
 
@@ -678,12 +845,279 @@ input.addEventListener("change", () => {
 });
 
 dropZone.addEventListener("drop", (event) => {
-  const file = event.dataTransfer?.files?.[0];
-  if (!file) {
+  const files = event.dataTransfer?.files;
+  if (!files || files.length === 0) return;
+  setSelectedFile(files);
+});
+
+tableSearch.addEventListener("input", () => {
+  renderTable(getVisibleRows());
+});
+
+function openHistoryModal() {
+  renderHistoryList();
+  historyModalOverlay.classList.remove("hidden");
+  document.body.style.overflow = "hidden";
+}
+
+function closeHistoryModal() {
+  historyModalOverlay.classList.add("hidden");
+  document.body.style.overflow = "";
+}
+
+function renderHistoryList() {
+  const history = getHistory();
+  if (history.length === 0) {
+    historyModalBody.innerHTML = '<div class="empty-state"><p>Nenhum hist\u00f3rico encontrado.</p></div>';
     return;
   }
 
-  setSelectedFile(file);
+  historyModalBody.innerHTML = history.map(item => `
+    <div class="history-item">
+      <div class="history-info">
+        <span class="history-filename">${item.fileName}</span>
+        <span class="history-meta">
+          ${item.totalRows} registros &bull; ${new Date(item.timestamp).toLocaleString()}
+          ${item.reconcile ? ' &bull; <span style="color:var(--match);font-weight:600">Com Confer&ecirc;ncia</span>' : ''}
+        </span>
+      </div>
+      <div class="history-actions">
+        <button class="primary load-history-btn" data-id="${item.id}">Carregar</button>
+        <button class="danger-btn delete-history-btn" data-id="${item.id}">Excluir</button>
+      </div>
+    </div>
+  `).join("");
+
+  // Listeners for load/delete
+  historyModalBody.querySelectorAll(".load-history-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const id = Number(btn.dataset.id);
+      const item = getHistory().find(h => h.id === id);
+      if (item) {
+        currentRows = item.rows;
+        currentFileName = item.fileName;
+        currentPages = item.pages;
+        renderPageFilter(currentPages);
+        renderPageTabs(currentPages);
+        syncPageFilter("all");
+        renderSummary(currentFileName, currentRows, currentPages);
+        actions.classList.remove("hidden");
+        whatsappFields.classList.remove("hidden");
+        
+        // Load Reconcile Data
+        if (item.reconcile) {
+          currentReconcileRows = item.reconcile.rows || [];
+          currentExcelRows = item.reconcile.excelRows || [];
+          renderReconcileSummary(item.reconcile.summary, item.reconcile.sourceCounts);
+          renderReconcileTable(currentReconcileRows);
+          renderExcelTable(currentExcelRows);
+          setReconcileStatus(`Confer\u00eancia carregada do hist\u00f3rico (${item.reconcile.excelMode}).`, "success");
+        } else {
+          currentReconcileRows = [];
+          currentExcelRows = [];
+          reconcileSummary.classList.add("hidden");
+          renderReconcileTable([]);
+          renderExcelTable([]);
+          setReconcileStatus("Nenhuma confer\u00eancia salva para este hist\u00f3rico.", "neutral");
+        }
+
+        setStatus(`Hist\u00f3rico carregado: ${currentFileName}`, "success");
+        closeHistoryModal();
+      }
+    });
+  });
+
+  historyModalBody.querySelectorAll(".delete-history-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const id = Number(btn.dataset.id);
+      const updated = getHistory().filter(h => h.id !== id);
+      localStorage.setItem(HISTORY_KEY, JSON.stringify(updated));
+      renderHistoryList();
+    });
+  });
+}
+
+historyBtn.addEventListener("click", openHistoryModal);
+historyModalClose.addEventListener("click", closeHistoryModal);
+historyModalFooterClose.addEventListener("click", closeHistoryModal);
+
+// Dashboard Logic
+function openDashboard() {
+  if (currentRows.length === 0) {
+    alert("Processe um PDF primeiro para ver as an\u00e1lises.");
+    return;
+  }
+  
+  // Show overlay first
+  dashboardOverlay.classList.remove("hidden");
+  document.body.style.overflow = "hidden";
+  
+  // Render data with a tiny delay for smooth animation
+  setTimeout(() => {
+    renderDashboardData();
+  }, 50);
+}
+
+function closeDashboard() {
+  dashboardOverlay.classList.add("hidden");
+  document.body.style.overflow = "";
+}
+
+function renderDashboardData() {
+  const currency = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
+  
+  // 1. Calculations
+  const totalPdf = currentRows.reduce((acc, row) => acc + (parseBrCurrencyToNumber(row.valor_total) || 0), 0);
+  
+  // Reconciled vs Pending
+  let totalMatch = 0;
+  let conciliadosCount = 0;
+  let pendentesCount = 0;
+  
+  const reconcileMap = new Map();
+  currentReconcileRows.forEach(r => {
+    const isMatch = r.status.startsWith("CONCILIADO") || r.status.startsWith("MATCH");
+    if (isMatch) {
+      totalMatch += Number(r.amount);
+      conciliadosCount++;
+    } else {
+      pendentesCount++;
+    }
+  });
+
+  const totalPending = totalPdf - totalMatch;
+  
+  dbTotalPdf.textContent = currency.format(totalPdf);
+  dbTotalMatch.textContent = currency.format(totalMatch);
+  dbTotalPending.textContent = currency.format(totalPending);
+
+  // 2. Group by Plate (Top 5)
+  const plateGroups = {};
+  currentRows.forEach(row => {
+    const p = row.placa || "N/I";
+    const val = parseBrCurrencyToNumber(row.valor_total) || 0;
+    plateGroups[p] = (plateGroups[p] || 0) + val;
+  });
+
+  const sortedPlates = Object.entries(plateGroups)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5);
+
+  // 3. Pending High Value Report
+  const allPending = currentReconcileRows
+    .filter(r => !r.status.startsWith("MATCH") && !r.status.startsWith("CONCILIADO"))
+    .sort((a, b) => b.amount - a.amount);
+
+  dbPendingTbody.innerHTML = allPending.map(r => {
+    // Buscar a placa original no PDF
+    const targetAmt = Number(r.amount).toFixed(2);
+    const pdfRow = currentRows.find(pr => {
+      const prDate = dateToIso(pr.data_cadastro || pr.data_embarque);
+      if (prDate !== r.date) return false;
+      const amounts = getTransportAmountsForMatch(pr);
+      return amounts.some(a => Number(a).toFixed(2) === targetAmt);
+    });
+    
+    let placaStr = pdfRow ? (pdfRow.placa || "N/I") : "";
+    if (!placaStr) {
+      placaStr = r.status.includes("EXCEL") ? "Excel" : "Extrato";
+    }
+
+    return `
+      <tr>
+        <td>${r.date}</td>
+        <td>${placaStr}</td>
+        <td>${currency.format(r.amount)}</td>
+        <td><span class="status-badge warn">${reconcileStatusMeta(r.status).label}</span></td>
+      </tr>
+    `;
+  }).join("") || '<tr><td colspan="4" style="text-align:center;padding:20px;color:var(--muted)">Nenhuma pend\u00eancia detectada.</td></tr>';
+
+  // 4. Charts
+  renderCharts(sortedPlates, conciliadosCount, pendentesCount);
+}
+
+function renderCharts(platesData, conciliados, pendentes) {
+  const currency = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
+  
+  // Render Top 5 Plates
+  const platesContainer = document.getElementById("html-chart-plates");
+  if (platesData.length === 0) {
+    platesContainer.innerHTML = '<p style="color:var(--muted); font-size: 0.8rem;">Sem dados de frete.</p>';
+  } else {
+    const maxVal = Math.max(...platesData.map(p => p[1]));
+    platesContainer.innerHTML = platesData.map(p => {
+      const percentage = maxVal > 0 ? (p[1] / maxVal) * 100 : 0;
+      return `
+        <div class="hc-item">
+          <div class="hc-header">
+            <span>${p[0]}</span>
+            <span>${currency.format(p[1])}</span>
+          </div>
+          <div class="hc-bar-track">
+            <div class="hc-bar-fill" style="width: 0%"></div>
+          </div>
+        </div>
+      `;
+    }).join("");
+
+    // Trigger animation
+    setTimeout(() => {
+      const fills = platesContainer.querySelectorAll('.hc-bar-fill');
+      fills.forEach((fill, idx) => {
+        const percentage = maxVal > 0 ? (platesData[idx][1] / maxVal) * 100 : 0;
+        fill.style.width = `${percentage}%`;
+      });
+    }, 50);
+  }
+
+  // Render Status
+  const statusContainer = document.getElementById("html-chart-status");
+  const totalItems = conciliados + pendentes;
+  
+  if (totalItems === 0) {
+    statusContainer.innerHTML = '<p style="color:var(--muted); font-size: 0.8rem;">Sem dados de confer\u00eancia.</p>';
+  } else {
+    const matchPct = (conciliados / totalItems) * 100;
+    const pendPct = (pendentes / totalItems) * 100;
+    
+    statusContainer.innerHTML = `
+      <div class="status-dual-bar">
+        <div class="status-fill match" style="width: 0%" title="${matchPct.toFixed(1)}% Conciliado"></div>
+        <div class="status-fill pending" style="width: 0%" title="${pendPct.toFixed(1)}% Pendente"></div>
+      </div>
+      <div class="status-legend">
+        <div class="sl-item">
+          <span><div class="sl-dot match"></div> Conciliados</span>
+          <span class="sl-value">${conciliados}</span>
+        </div>
+        <div class="sl-item">
+          <span><div class="sl-dot pending"></div> Pendentes</span>
+          <span class="sl-value">${pendentes}</span>
+        </div>
+      </div>
+    `;
+
+    // Trigger animation
+    setTimeout(() => {
+      statusContainer.querySelector('.status-fill.match').style.width = `${matchPct}%`;
+      statusContainer.querySelector('.status-fill.pending').style.width = `${pendPct}%`;
+    }, 50);
+  }
+}
+
+dashboardBtn.addEventListener("click", openDashboard);
+dashboardClose.addEventListener("click", closeDashboard);
+
+historyBtn.addEventListener("click", openHistoryModal);
+historyModalClose.addEventListener("click", closeHistoryModal);
+historyModalFooterClose.addEventListener("click", closeHistoryModal);
+
+clearHistoryBtn.addEventListener("click", () => {
+  if (confirm("Deseja realmente limpar todo o histórico?")) {
+    localStorage.removeItem(HISTORY_KEY);
+    renderHistoryList();
+  }
 });
 
 pageFilter.addEventListener("change", () => {
@@ -706,6 +1140,7 @@ reconcileForm.addEventListener("submit", async (event) => {
     return;
   }
 
+  setLoading(document.querySelector("#reconcile-button"), true);
   setReconcileStatus("Conciliando dados...", "neutral");
 
   const data = new FormData();
@@ -746,6 +1181,15 @@ reconcileForm.addEventListener("submit", async (event) => {
       }
     }
 
+    // UPDATE HISTORY WITH RECONCILE DATA
+    updateHistoryWithReconcile(currentFileName, {
+      rows: currentReconcileRows,
+      excelRows: currentExcelRows,
+      summary: payload.summary,
+      sourceCounts: payload.sourceCounts,
+      excelMode: modo
+    });
+
     setReconcileStatus(
       `Conferencia concluida (${modo}): ${payload.summary.conciliados} conciliados, ${payload.summary.divergentes} divergentes.`,
       payload.sourceCounts?.excel === 0 && excelInput.files[0] ? "warn" : "success"
@@ -758,6 +1202,8 @@ reconcileForm.addEventListener("submit", async (event) => {
     renderReconcileTable([]);
     renderExcelTable([]);
     setReconcileStatus(error.message || "Falha na conciliacao.", "error");
+  } finally {
+    setLoading(document.querySelector("#reconcile-button"), false);
   }
 });
 
@@ -765,6 +1211,99 @@ reconcileFilter.addEventListener("change", () => {
   renderReconcileTable(currentReconcileRows);
   renderTable(getVisibleRows());
   renderExcelTable(currentExcelRows);
+});
+
+[reconcileStart, reconcileEnd].forEach(el => {
+  el.addEventListener("change", () => renderReconcileTable(currentReconcileRows));
+});
+
+reconcileWhatsAppBtn.addEventListener("click", () => {
+  const msg = summarizeReconcileForWhatsApp(currentReconcileRows);
+  const url = `https://wa.me/?text=${encodeURIComponent(msg)}`;
+  window.open(url, "_blank");
+});
+
+reconcileExportBtn.addEventListener("click", async () => {
+  if (currentReconcileRows.length === 0) return;
+  setReconcileStatus("Gerando planilha da conferencia...", "neutral");
+
+  const response = await fetch("/api/export-reconcile", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ rows: currentReconcileRows }),
+  });
+
+  if (!response.ok) {
+    setReconcileStatus("Falha ao exportar conferencia.", "error");
+    return;
+  }
+
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "conferencia-fretes.xlsx";
+  link.click();
+  URL.revokeObjectURL(url);
+  setReconcileStatus("Conferencia exportada com sucesso.", "success");
+});
+
+// ─── Fullscreen Table Modal ───
+const modalOverlay = document.querySelector("#table-modal-overlay");
+const modalTitle = document.querySelector("#table-modal-title");
+const modalBody = document.querySelector("#table-modal-body");
+const modalClose = document.querySelector("#table-modal-close");
+
+function openTableModal(panelId) {
+  const panel = document.getElementById(panelId);
+  if (!panel) return;
+
+  const titleEl = panel.querySelector(".table-title span");
+  const tableWrap = panel.querySelector(".table-wrap");
+  if (!titleEl || !tableWrap) return;
+
+  modalTitle.textContent = titleEl.textContent;
+
+  // Clone the table content into the modal
+  const tableClone = tableWrap.cloneNode(true);
+  modalBody.innerHTML = "";
+  modalBody.appendChild(tableClone);
+
+  // Ensure cloned table is visible
+  const clonedTable = tableClone.querySelector("table");
+  if (clonedTable) {
+    clonedTable.classList.remove("hidden");
+  }
+
+  modalOverlay.classList.remove("hidden");
+  document.body.style.overflow = "hidden";
+}
+
+function closeTableModal() {
+  modalOverlay.classList.add("hidden");
+  document.body.style.overflow = "";
+}
+
+document.querySelectorAll(".expand-btn").forEach((btn) => {
+  btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const panelId = btn.dataset.expand;
+    openTableModal(panelId);
+  });
+});
+
+modalClose.addEventListener("click", closeTableModal);
+
+modalOverlay.addEventListener("click", (e) => {
+  if (e.target === modalOverlay) {
+    closeTableModal();
+  }
+});
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !modalOverlay.classList.contains("hidden")) {
+    closeTableModal();
+  }
 });
 
 if ("serviceWorker" in navigator) {

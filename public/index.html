@@ -12,20 +12,34 @@
   <body>
     <main class="page">
       <section class="hero">
-        <p class="eyebrow">Uso interno</p>
-        <h1>Ler PDF e gerar dados</h1>
-        <p class="intro">
-          Envie o PDF, revise os dados e exporte ou compartilhe no WhatsApp.
-        </p>
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 20px;">
+          <div>
+            <p class="eyebrow">Uso interno</p>
+            <h1>Ler PDF e gerar dados</h1>
+            <p class="intro">
+              Envie um ou mais PDFs, revise os dados e exporte ou compartilhe.
+            </p>
+          </div>
+          <div class="hero-actions">
+            <button id="dashboard-btn" class="secondary-btn" title="Ver An&aacute;lises">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>
+              Dashboard
+            </button>
+            <button id="history-btn" class="history-btn" title="Ver Hist&oacute;rico">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:18px;height:18px;"><path d="M12 8v4l3 3"/><circle cx="12" cy="12" r="9"/><path d="M3.05 11a9 9 0 1 1 .5 4m-.5 5v-5h5"/></svg>
+              Hist&oacute;rico
+            </button>
+          </div>
+        </div>
       </section>
 
       <section class="panel">
         <form id="upload-form" class="upload-form">
           <label class="file-input">
             <span>Selecionar PDF</span>
-            <input id="pdf-input" type="file" name="pdf" accept="application/pdf" required />
+            <input id="pdf-input" type="file" name="pdf" accept="application/pdf" multiple required />
           </label>
-          <button id="submit-button" type="submit">Processar arquivo</button>
+          <button id="submit-button" type="submit"><span class="spinner"></span>Processar arquivo</button>
         </form>
         <div id="drop-zone" class="drop-zone">
           Arraste e solte o PDF do anexo aqui (ou clique em "Selecionar PDF")
@@ -48,15 +62,13 @@
               <option value="all">Todas as p&aacute;ginas</option>
             </select>
           </label>
-          <button id="export-button" type="button">Exportar Excel</button>
+          <button id="export-button" type="button"><span class="spinner"></span>Exportar Excel</button>
           <button id="whatsapp-button" type="button">Enviar para WhatsApp</button>
         </div>
         <div id="whatsapp-fields" class="whatsapp-fields hidden">
           <p>Campos no WhatsApp</p>
           <label><input type="checkbox" data-wa-field="numero_documento" checked /> Documento</label>
           <label><input type="checkbox" data-wa-field="id_viagem" checked /> ID viagem</label>
-          <label><input type="checkbox" data-wa-field="data_cadastro" checked /> Cadastro</label>
-          <label><input type="checkbox" data-wa-field="data_embarque" /> Embarque</label>
           <label><input type="checkbox" data-wa-field="placa" /> Placa</label>
           <label><input type="checkbox" data-wa-field="valor_frete" checked /> Frete</label>
           <label><input type="checkbox" data-wa-field="valor_adiantamento" checked /> Adiantamento</label>
@@ -84,28 +96,55 @@
             <span>Planilha Excel (opcional)</span>
             <input id="excel-input" type="file" accept=".xlsx,.xls,.csv" />
           </label>
-          <button id="reconcile-button" type="submit">Conciliar</button>
+          <button id="reconcile-button" type="submit"><span class="spinner"></span>Conciliar</button>
+          <button id="reconcile-whatsapp" type="button" class="secondary hidden">WhatsApp Conferencia</button>
+          <button id="reconcile-export" type="button" class="secondary hidden">Exportar Conferencia</button>
         </form>
         <div id="reconcile-status" class="status"></div>
         <div class="reconcile-help">
           PDF Viagem usa ADT/SDO quando existir (e Frete quando nao existir parcela). Extrato e Excel comparam por Data + Valor.
           Clique em uma linha da conferencia para destacar os itens correspondentes nas tabelas extraidas.
         </div>
-        <label class="select-wrap reconcile-filter">
-          <span>Filtro da conferencia</span>
-          <select id="reconcile-filter">
-            <option value="all">Todos</option>
-            <option value="match">Somente match</option>
-            <option value="warn">Somente pendencias</option>
-            <option value="error">Somente divergentes</option>
-          </select>
-        </label>
-        <section id="reconcile-summary" class="summary hidden"></section>
+        <div class="dashboard-row">
+          <label class="select-wrap reconcile-filter">
+            <span>Filtro</span>
+            <select id="reconcile-filter">
+              <option value="all">Todos</option>
+              <option value="match">Somente match</option>
+              <option value="warn">Pendencias</option>
+              <option value="error">Divergentes</option>
+            </select>
+          </label>
+          <div class="date-range">
+            <label class="select-wrap">
+              <span>Inicio</span>
+              <input type="date" id="reconcile-start">
+            </label>
+            <label class="select-wrap">
+              <span>Fim</span>
+              <input type="date" id="reconcile-end">
+            </label>
+          </div>
+          <section id="reconcile-summary" class="summary hidden"></section>
+          <article id="pending-card" class="summary-card hidden alert">
+            <strong>Total Pendente</strong>
+            <span id="total-pending-value">R$ 0,00</span>
+          </article>
+        </div>
       </section>
 
       <section class="compare-grid">
-        <section class="table-panel">
-          <h3 class="table-title">Dados PDF</h3>
+        <section class="table-panel" id="panel-pdf">
+          <h3 class="table-title">
+            <span>Dados PDF<span class="record-count" id="count-pdf"></span></span>
+            <button class="expand-btn" data-expand="panel-pdf" title="Expandir">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+            </button>
+          </h3>
+          <div class="search-wrap">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;opacity:0.4;"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input type="text" id="table-search" class="search-input" placeholder="Buscar por placa ou documento...">
+          </div>
           <div class="table-wrap">
             <table id="results-table" class="results-table hidden">
               <thead>
@@ -113,8 +152,6 @@
                   <th>P&aacute;gina</th>
                   <th>Documento</th>
                   <th>ID viagem</th>
-                  <th>Cadastro</th>
-                  <th>Embarque</th>
                   <th>Placa</th>
                   <th>Frete</th>
                   <th>Adiantamento</th>
@@ -124,43 +161,158 @@
                 </tr>
               </thead>
               <tbody></tbody>
+              <tfoot id="table-footer">
+                <tr>
+                  <th colspan="4">Totais vis&iacute;veis</th>
+                  <th id="footer-frete">R$ 0,00</th>
+                  <th id="footer-adt">R$ 0,00</th>
+                  <th id="footer-sdo">R$ 0,00</th>
+                  <th id="footer-pedagio">-</th>
+                  <th id="footer-total">R$ 0,00</th>
+                </tr>
+              </tfoot>
             </table>
+            <div class="empty-state" id="empty-pdf">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+              <p>Processe um PDF para ver os dados extra&iacute;dos aqui</p>
+            </div>
           </div>
         </section>
 
-        <section class="table-panel">
-          <h3 class="table-title">Conferencia</h3>
+        <section class="table-panel" id="panel-reconcile">
+          <h3 class="table-title">
+            <span>Conferencia<span class="record-count" id="count-reconcile"></span></span>
+            <button class="expand-btn" data-expand="panel-reconcile" title="Expandir">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+            </button>
+          </h3>
           <div class="table-wrap">
             <table id="reconcile-table" class="results-table hidden">
               <thead>
                 <tr>
-                <th>Data</th>
-                <th>Valor</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-          </table>
-        </div>
+                  <th>Valor</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+            <div class="empty-state" id="empty-reconcile">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+              <p>Envie o extrato e clique em Conciliar para conferir</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="table-panel" id="panel-excel">
+          <h3 class="table-title">
+            <span>Dados Excel<span class="record-count" id="count-excel"></span></span>
+            <button class="expand-btn" data-expand="panel-excel" title="Expandir">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+            </button>
+          </h3>
+          <div class="table-wrap">
+            <table id="excel-table" class="results-table hidden">
+              <thead>
+                <tr>
+                  <th>Placa</th>
+                  <th>Valor</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+            <div class="empty-state" id="empty-excel">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/><path d="M3 9h18"/><path d="M3 15h18"/></svg>
+              <p>Envie uma planilha Excel na conferência (opcional)</p>
+            </div>
+          </div>
+        </section>
       </section>
 
-      <section class="table-panel">
-        <h3 class="table-title">Dados Excel</h3>
-        <div class="table-wrap">
-          <table id="excel-table" class="results-table hidden">
-            <thead>
-              <tr>
-                <th>Data</th>
-                <th>Valor</th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-          </table>
+      <!-- Fullscreen Modal -->
+      <div id="table-modal-overlay" class="table-modal-overlay hidden">
+        <div class="table-modal">
+          <div class="table-modal-header">
+            <h3 id="table-modal-title">Dados</h3>
+            <button class="table-modal-close" id="table-modal-close" title="Fechar">&times;</button>
+          </div>
+          <div class="table-modal-body" id="table-modal-body"></div>
         </div>
-      </section>
-      </section>
+      </div>
     </main>
 
-    <script src="/app.js"></script>
+    <!-- History Modal -->
+    <div id="history-modal-overlay" class="modal-overlay hidden">
+      <div class="modal-content history-modal">
+        <header class="modal-header">
+          <h2 id="history-modal-title">Hist&oacute;rico de Processamentos</h2>
+          <button id="history-modal-close" class="modal-close">&times;</button>
+        </header>
+        <div class="modal-body" id="history-modal-body">
+          <!-- History items will be injected here -->
+        </div>
+        <footer class="modal-footer">
+          <button id="clear-history-btn" class="danger-btn">Limpar Tudo</button>
+          <button class="secondary-btn" onclick="closeHistoryModal()">Fechar</button>
+        </footer>
+      </div>
+    </div>
+
+    <!-- Dashboard Modal -->
+    <div id="dashboard-overlay" class="modal-overlay hidden">
+      <div class="modal-content dashboard-modal">
+        <header class="modal-header">
+          <h2>Dashboard de Fretes & An&aacute;lises</h2>
+          <button id="dashboard-close" class="modal-close">&times;</button>
+        </header>
+        <div class="modal-body">
+          <div class="dashboard-grid">
+            <div class="dashboard-stats">
+              <div class="stat-card">
+                <span class="stat-label">Total Frete (PDF)</span>
+                <span class="stat-value" id="db-total-pdf">R$ 0,00</span>
+              </div>
+              <div class="stat-card success">
+                <span class="stat-label">Total Conciliado</span>
+                <span class="stat-value" id="db-total-match">R$ 0,00</span>
+              </div>
+              <div class="stat-card warning">
+                <span class="stat-label">Total Pendente</span>
+                <span class="stat-value" id="db-total-pending">R$ 0,00</span>
+              </div>
+            </div>
+            
+            <div class="chart-row">
+              <div class="chart-container">
+                <h3>Top 5 Placas por Valor</h3>
+                <div id="html-chart-plates" class="html-chart-list"></div>
+              </div>
+              <div class="chart-container small">
+                <h3>Status da Confer&ecirc;ncia</h3>
+                <div id="html-chart-status" class="html-chart-status"></div>
+              </div>
+            </div>
+
+            <div class="pending-report">
+              <h3>Todas as Pend&ecirc;ncias</h3>
+              <div class="table-wrap mini">
+                <table id="db-pending-table" class="results-table">
+                  <thead>
+                    <tr>
+                      <th>Data</th>
+                      <th>Placa</th>
+                      <th>Valor</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="/app.js"></script>
   </body>
 </html>

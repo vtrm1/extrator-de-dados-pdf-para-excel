@@ -128,10 +128,10 @@ function parseBlock(block, pageNumber) {
 
   const pedagio = parseCurrency(pedagioRaw);
   const parcelas = parseCurrency(parcelasRaw);
-  const total = parseCurrency(totalRaw);
   const tipoTotais = extractParcelTypeTotals(block);
   const adiantamento = tipoTotais.adiantamento;
   const saldo = tipoTotais.saldo;
+  const total = (adiantamento === null && saldo === null) ? null : (adiantamento || 0) + (saldo || 0);
 
   if (!conhecimento && !idViagem && total == null) {
     return null;
