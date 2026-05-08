@@ -194,6 +194,16 @@
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
             </button>
           </h3>
+          <div style="display: flex; gap: 12px; align-items: center; margin-bottom: 12px;">
+            <div class="filter-group" style="display: flex; gap: 8px; align-items: center; background: var(--bg-secondary); padding: 8px 12px; border-radius: 8px; border: 1px solid var(--line); font-size: 0.85rem; font-weight: 600;">
+              <span>Filtrar por:</span>
+              <select id="reconcile-type-filter" style="padding: 4px 8px; border-radius: 4px; border: 1px solid var(--line); background: var(--bg-primary); color: var(--text-primary); cursor: pointer;">
+                <option value="ALL">Todos</option>
+                <option value="ADT">Somente Adiantamento (ADT)</option>
+                <option value="SDO">Somente Saldo (SDO)</option>
+              </select>
+            </div>
+          </div>
           <div class="table-wrap">
             <table id="reconcile-table" class="results-table hidden">
               <thead>

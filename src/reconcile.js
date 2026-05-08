@@ -104,13 +104,15 @@ function groupByKey(rows, source) {
         transport: 0,
         extrato: 0,
         excel: 0,
-        origens: new Set()
+        origens: new Set(),
+        tripTotals: new Set()
       });
     }
     const data = map.get(key);
     data[source] += 1;
-    if (source === "transport" && row.origem) {
-      data.origens.add(row.origem);
+    if (source === "transport") {
+      if (row.origem) data.origens.add(row.origem);
+      if (row.total) data.tripTotals.add(row.total);
     }
   });
   return map;
@@ -138,21 +140,23 @@ function parseTransportRows(rows) {
         ? Number(row.valor_frete_num)
         : parseBrCurrencyToNumber(row.valor_frete);
 
+    const total = parseBrCurrencyToNumber(row.valor_total);
+
     const hasParcelas = (adiantamento != null && adiantamento > 0) || (saldo != null && saldo > 0);
 
     // Extrato normalmente vem por parcelas (ADT/SDO). Quando existir, prioriza essa comparacao.
     if (hasParcelas) {
       if (adiantamento != null && adiantamento > 0) {
-        out.push({ date, amount: adiantamento, origem: "ADT" });
+        out.push({ date, amount: adiantamento, origem: "ADT", total });
       }
       if (saldo != null && saldo > 0) {
-        out.push({ date, amount: saldo, origem: "SDO" });
+        out.push({ date, amount: saldo, origem: "SDO", total });
       }
       return;
     }
 
     if (frete != null && frete > 0) {
-      out.push({ date, amount: frete, origem: "FRETE" });
+      out.push({ date, amount: frete, origem: "FRETE", total });
     }
   });
 
@@ -364,6 +368,10 @@ function reconcileData(transportRows, extratoRows, excelResult) {
           if (!current.origens) current.origens = new Set();
           value.origens.forEach(o => current.origens.add(o));
         }
+        if (value.tripTotals) {
+          if (!current.tripTotals) current.tripTotals = new Set();
+          value.tripTotals.forEach(t => current.tripTotals.add(t));
+        }
       }
     });
   });
@@ -398,7 +406,12 @@ function reconcileData(transportRows, extratoRows, excelResult) {
       } else if (!hasTransport && !hasExtrato && hasExcel) {
         status = "SO_EXCEL";
       }
-      return { ...row, status, origens: row.origens ? Array.from(row.origens).join(", ") : "" };
+      return { 
+        ...row, 
+        status, 
+        origens: row.origens ? Array.from(row.origens).join(", ") : "",
+        tripTotals: row.tripTotals ? Array.from(row.tripTotals) : []
+      };
     })
     .sort((a, b) => b.amount - a.amount);
 
