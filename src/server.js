@@ -49,21 +49,23 @@ function appendSheet(workbook, name, rows) {
 }
 
 app.use(express.json({ limit: "5mb" }));
-app.use((req, res, next) => {
-  if (
-    req.path === "/" ||
-    req.path.endsWith(".js") ||
-    req.path.endsWith(".css") ||
-    req.path.endsWith(".webmanifest")
-  ) {
-    res.setHeader("Cache-Control", "no-store");
-  }
-  next();
-});
+
 app.get("/favicon.ico", (_req, res) => {
   res.status(204).end();
 });
-app.use(express.static(path.join(__dirname, "..", "public")));
+
+app.use(express.static(path.join(__dirname, "..", "public"), {
+  etag: true, // Allow ETags for 304 Not Modified when appropriate
+  lastModified: true,
+  setHeaders: (res, path) => {
+    if (path.endsWith(".html") || path.endsWith(".js") || path.endsWith(".css")) {
+      // Force browsers to revalidate the file with the server every time
+      res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+      res.setHeader("Pragma", "no-cache");
+      res.setHeader("Expires", "0");
+    }
+  }
+}));
 
 app.post("/api/parse", upload.array("pdf"), async (req, res) => {
   if (!req.files || req.files.length === 0) {
