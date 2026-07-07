@@ -1,5 +1,3 @@
-const { extractTripsWithGemini } = require("./gemini-parser");
-
 function replaceAllPairs(value, pairs) {
   let output = value;
   for (const [from, to] of pairs) {
@@ -224,20 +222,11 @@ async function extractTripsFromPdf(buffer, password = "") {
       }
     }
 
-    const parsedResult = {
+    return {
       totalPages: result.total,
       pages,
       rows: pages.flatMap((page) => page.rows),
     };
-
-    // FALLBACK: Se o PDF não tiver texto extraível (como scans/imagens), aciona o Gemini OCR
-    if (parsedResult.rows.length === 0) {
-      console.log("Nenhuma viagem extraída. Tentando via OCR com Gemini...");
-      const geminiResult = await extractTripsWithGemini(buffer);
-      return { ...geminiResult, isOcr: true };
-    }
-
-    return parsedResult;
   } finally {
     await parser.destroy();
   }

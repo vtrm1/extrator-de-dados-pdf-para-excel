@@ -97,6 +97,7 @@ app.post("/api/parse", upload.array("pdf"), async (req, res) => {
       fileName: results.length === 1 ? results[0].fileName : "Múltiplos Arquivos",
       totalRows: combinedRows.length,
       totalPages: combinedPages.length,
+      isOcr: results.some(r => r.isOcr),
       rows: combinedRows,
       pages: combinedPages.map(p => ({
         page_number: p.page_number,

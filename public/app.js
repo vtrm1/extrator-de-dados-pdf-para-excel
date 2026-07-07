@@ -834,7 +834,16 @@ form.addEventListener("submit", async (event) => {
   setLoading(submitButton, true);
   actions.classList.add("hidden");
   pageTabs.classList.add("hidden");
+  
+  let elapsed = 0;
   setStatus("Processando...", "neutral");
+  
+  const timerInterval = setInterval(() => {
+    elapsed++;
+    if (elapsed > 2) {
+      setStatus(`Processando... (Analisando conteúdo, tempo decorrido: ${elapsed}s). Se for um PDF escaneado (imagem), a IA será ativada e pode levar até 60s.`, "neutral");
+    }
+  }, 1000);
 
   const data = buildFormDataFromSelection();
 
@@ -843,6 +852,8 @@ form.addEventListener("submit", async (event) => {
       method: "POST",
       body: data,
     });
+
+    clearInterval(timerInterval);
 
     const payload = await response.json().catch(() => ({}));
 
@@ -876,12 +887,16 @@ form.addEventListener("submit", async (event) => {
 
     const totalRows = payload.totalRows || currentRows.length;
     const totalPages = payload.totalPages || currentPages.length;
-    setStatus(
-      `PDF processado com ${totalRows} registros em ${totalPages} p\u00e1ginas.`,
-      "success"
-    );
+    
+    let successMsg = `PDF processado com ${totalRows} registros em ${totalPages} páginas.`;
+    if (payload.isOcr) {
+      successMsg += " (⚠️ Leitura feita por IA via OCR, pois o arquivo não tinha texto nativo)";
+    }
+    
+    setStatus(successMsg, "success");
     setLoading(submitButton, false);
   } catch (error) {
+    if (typeof timerInterval !== 'undefined') clearInterval(timerInterval);
     if (error.message === "ENCRYPTED") {
       setLoading(submitButton, false);
       pendingPasswordAction = () => form.dispatchEvent(new Event("submit", { cancelable: true }));
