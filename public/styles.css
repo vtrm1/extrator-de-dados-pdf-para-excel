@@ -443,8 +443,13 @@ button.secondary:hover:not(:disabled) {
 .compare-grid {
   margin-top: 24px;
   display: grid;
-  grid-template-columns: 1.4fr 0.6fr 1fr;
-  gap: 16px;
+  grid-template-columns:
+    minmax(280px, var(--pdf-panel-size, 1.4fr))
+    10px
+    minmax(220px, var(--reconcile-panel-size, 0.6fr))
+    10px
+    minmax(260px, var(--excel-panel-size, 1fr));
+  gap: 6px;
   height: 75vh;
   min-height: 500px;
 }
@@ -452,6 +457,49 @@ button.secondary:hover:not(:disabled) {
 .compare-grid .table-panel {
   height: 100%;
   position: relative;
+}
+
+.panel-resizer {
+  position: relative;
+  min-width: 10px;
+  height: 100%;
+  cursor: col-resize;
+  touch-action: none;
+  border-radius: 8px;
+  transition: background 0.15s ease;
+}
+
+.panel-resizer::after {
+  content: "";
+  position: absolute;
+  top: 14px;
+  bottom: 14px;
+  left: 50%;
+  width: 3px;
+  border-radius: 99px;
+  background: #cbd5e1;
+  transform: translateX(-50%);
+  transition: width 0.15s ease, background 0.15s ease;
+}
+
+.panel-resizer:hover,
+.panel-resizer.dragging {
+  background: var(--accent-soft);
+}
+
+.panel-resizer:hover::after,
+.panel-resizer.dragging::after {
+  width: 5px;
+  background: var(--accent);
+}
+
+body.resizing-panels {
+  cursor: col-resize;
+  user-select: none;
+}
+
+.global-source-filter-wrap {
+  min-width: 230px;
 }
 
 /* ─── Table Panel ─── */
@@ -705,6 +753,11 @@ button.secondary:hover:not(:disabled) {
   box-shadow: inset 3px 0 0 var(--accent);
 }
 
+.reconcile-row.related-parcel td {
+  background: #fff7ed !important;
+  box-shadow: inset 3px 0 0 #f97316;
+}
+
 .linked-row-match td {
   background: var(--success-soft) !important;
   box-shadow: inset 3px 0 0 var(--success);
@@ -750,18 +803,39 @@ button.secondary:hover:not(:disabled) {
   background: #fff;
   border-bottom: 1px solid var(--line);
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 10px;
 }
 
 .search-input {
   flex: 1;
+  min-width: 100px;
   border: 0;
   background: transparent;
   font-size: 0.8rem;
   padding: 4px 0;
   outline: none;
   color: var(--ink);
+}
+
+.search-field-select {
+  max-width: 88px;
+  min-height: 30px;
+  padding: 4px 24px 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background-color: #f8fafc;
+  color: var(--ink);
+  font-size: 0.75rem;
+  font-weight: 600;
+  outline: none;
+  cursor: pointer;
+}
+
+.search-field-select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
 }
 
 .search-input::placeholder {
@@ -1291,10 +1365,12 @@ button.loading {
 /* ─── Responsive ─── */
 @media (max-width: 1400px) {
   .compare-grid {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr 1fr !important;
     grid-template-rows: 1fr 1fr;
+    gap: 16px;
     height: auto;
   }
+  .panel-resizer { display: none; }
 }
 
 @media (max-width: 768px) {
@@ -1302,7 +1378,7 @@ button.loading {
   .upload-form { flex-direction: column; align-items: stretch; }
   .hero h1 { font-size: 2rem; }
   .compare-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: 1fr !important;
     grid-template-rows: auto;
   }
   .dashboard-row {

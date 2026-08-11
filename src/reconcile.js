@@ -111,6 +111,12 @@ function keyFrom(amount) {
   return `${Number(amount).toFixed(2)}`;
 }
 
+function normalizeCte(value) {
+  const digits = String(value ?? "").replace(/\D/g, "");
+  if (!digits) return "";
+  return digits.replace(/^0+/, "") || "0";
+}
+
 function groupByKey(rows, source) {
   const map = new Map();
   rows.forEach((row) => {
@@ -127,14 +133,36 @@ function groupByKey(rows, source) {
         extrato: 0,
         excel: 0,
         origens: new Set(),
-        tripTotals: new Set()
+        tripTotals: new Set(),
+        tripTotalCounts: new Map(),
+        tripKeysByTotal: new Map(),
+        tripLinks: new Map(),
+        relatedAmounts: new Set()
       });
     }
     const data = map.get(key);
     data[source] += 1;
     if (source === "transport") {
       if (row.origem) data.origens.add(row.origem);
-      if (row.total) data.tripTotals.add(row.total);
+      if (row.total) {
+        const totalKey = keyFrom(row.total);
+        data.tripTotals.add(Number(row.total));
+        data.tripTotalCounts.set(totalKey, (data.tripTotalCounts.get(totalKey) || 0) + 1);
+        if (!data.tripKeysByTotal.has(totalKey)) data.tripKeysByTotal.set(totalKey, new Set());
+        data.tripKeysByTotal.get(totalKey).add(row.tripKey || `${totalKey}-${data.transport}`);
+      }
+      if (row.tripKey) {
+        data.tripLinks.set(row.tripKey, {
+          tripKey: row.tripKey,
+          cte: normalizeCte(row.cte),
+          total: Number(row.total || row.amount || 0),
+        });
+      }
+      (row.relatedAmounts || []).forEach((amount) => {
+        if (amount != null && amount > 0 && keyFrom(amount) !== key) {
+          data.relatedAmounts.add(Number(amount));
+        }
+      });
     }
   });
   return map;
@@ -143,7 +171,7 @@ function groupByKey(rows, source) {
 function parseTransportRows(rows) {
   const out = [];
 
-  (Array.isArray(rows) ? rows : []).forEach((row) => {
+  (Array.isArray(rows) ? rows : []).forEach((row, rowIndex) => {
     const date = dateToISO(row.data_cadastro || row.data_embarque);
     if (!date) {
       return;
@@ -162,23 +190,46 @@ function parseTransportRows(rows) {
         ? Number(row.valor_frete_num)
         : parseBrCurrencyToNumber(row.valor_frete);
 
-    const total = parseBrCurrencyToNumber(row.valor_total);
+    const parsedTotal = row.valor_total_num != null
+      ? Number(row.valor_total_num)
+      : parseBrCurrencyToNumber(row.valor_total);
+    // O Excel normalmente registra o frete total, enquanto o extrato registra
+    // as parcelas ADT/SDO. Mantemos o frete como elo entre essas fontes.
+    const total = frete != null && frete > 0 ? frete : parsedTotal;
+    const tripKey = String(row.id_viagem || row.numero_documento || `pdf-row-${rowIndex}`);
+    const cte = normalizeCte(row.numero_documento);
 
     const hasParcelas = (adiantamento != null && adiantamento > 0) || (saldo != null && saldo > 0);
 
     // Extrato normalmente vem por parcelas (ADT/SDO). Quando existir, prioriza essa comparacao.
     if (hasParcelas) {
       if (adiantamento != null && adiantamento > 0) {
-        out.push({ date, amount: adiantamento, origem: "ADT", total });
+        out.push({
+          date,
+          amount: adiantamento,
+          origem: "ADT",
+          total,
+          tripKey,
+          cte,
+          relatedAmounts: saldo != null && saldo > 0 ? [saldo] : [],
+        });
       }
       if (saldo != null && saldo > 0) {
-        out.push({ date, amount: saldo, origem: "SDO", total });
+        out.push({
+          date,
+          amount: saldo,
+          origem: "SDO",
+          total,
+          tripKey,
+          cte,
+          relatedAmounts: adiantamento != null && adiantamento > 0 ? [adiantamento] : [],
+        });
       }
       return;
     }
 
     if (frete != null && frete > 0) {
-      out.push({ date, amount: frete, origem: "FRETE", total });
+      out.push({ date, amount: frete, origem: "FRETE", total, tripKey, cte });
     }
   });
 
@@ -364,6 +415,11 @@ function parseExcelFile(buffer) {
       const sheetName = sheetNames[idx];
       const ws = wb.Sheets[sheetName];
       const rawData = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
+      const formattedData = XLSX.utils.sheet_to_json(ws, {
+        header: 1,
+        defval: "",
+        raw: false,
+      });
 
       if (rawData.length === 0) continue;
 
@@ -371,6 +427,8 @@ function parseExcelFile(buffer) {
       let dateColIdx = -1;
       let freteColIdx = -1;
       let placaColIdx = -1;
+      let cteColIdx = -1;
+      let fallbackHeader = null;
 
       for (let i = 0; i < Math.min(rawData.length, 50); i++) {
         const row = rawData[i];
@@ -393,27 +451,52 @@ function parseExcelFile(buffer) {
           return ["placa", "placas", "veiculo", "veículo", "caminhão", "caminhao"].includes(c) || /^placa/i.test(c) || /^caminh/i.test(c);
         });
 
+        const cIdx = row.findIndex((cell) => {
+          const c = String(cell || "").toLowerCase().trim().replace(/\s+/g, " ");
+          return ["cte", "ct-e", "n cte", "nº cte", "numero cte", "número cte"].includes(c) ||
+            /^(n(umero|úmero)?\.?\s*)?ct-?e$/i.test(c);
+        });
+
         if (dIdx >= 0 && fIdx >= 0) {
           headerRowIndex = i;
           dateColIdx = dIdx;
           freteColIdx = fIdx;
           placaColIdx = pIdx;
+          cteColIdx = cIdx;
           break;
         }
+
+        // A data do Excel e apenas informativa. Quando a planilha nao possui
+        // uma coluna de data reconhecivel, placa + frete ainda identificam a tabela.
+        if (!fallbackHeader && fIdx >= 0 && pIdx >= 0) {
+          fallbackHeader = { headerRowIndex: i, dateColIdx: dIdx, freteColIdx: fIdx, placaColIdx: pIdx, cteColIdx: cIdx };
+        }
+      }
+
+      if (headerRowIndex < 0 && fallbackHeader) {
+        ({ headerRowIndex, dateColIdx, freteColIdx, placaColIdx, cteColIdx } = fallbackHeader);
       }
 
       if (headerRowIndex >= 0) {
         const parsedRows = [];
         for (let i = headerRowIndex + 1; i < rawData.length; i++) {
           const row = rawData[i];
-          if (!row || row.length <= Math.max(dateColIdx, freteColIdx)) continue;
+          if (!row || row.length <= freteColIdx) continue;
           
-          const date = excelDateToISO(row[dateColIdx]);
+          const date = dateColIdx >= 0 ? excelDateToISO(row[dateColIdx]) : "";
           const amount = parseBrCurrencyToNumber(row[freteColIdx]);
           const placa = placaColIdx >= 0 ? String(row[placaColIdx] || "").trim() : "";
+          const formattedCte = cteColIdx >= 0
+            ? formattedData[i]?.[cteColIdx]
+            : "";
+          const rawCte = cteColIdx >= 0 ? row[cteColIdx] : "";
+          const cteDisplay = String(formattedCte || rawCte || "")
+            .trim()
+            .replace(/^'+/, "");
+          const cte = normalizeCte(cteDisplay);
           
-          if (date && amount != null && amount > 0) {
-            parsedRows.push({ date, amount, placa, originalRow: row });
+          if (amount != null && amount > 0) {
+            parsedRows.push({ date, amount, placa, cte, cteDisplay, originalRow: row });
           }
         }
 
@@ -424,9 +507,11 @@ function parseExcelFile(buffer) {
             success: true, 
             sheet: sheetName, 
             headerRow: headerRowIndex + 1,
-            dateCol: String(rawData[headerRowIndex][dateColIdx]),
+            dateCol: dateColIdx >= 0 ? String(rawData[headerRowIndex][dateColIdx]) : "(nao encontrada)",
             freteCol: String(rawData[headerRowIndex][freteColIdx]),
             placaCol: placaColIdx >= 0 ? String(rawData[headerRowIndex][placaColIdx]) : "(não encontrada)",
+            cteCol: cteColIdx >= 0 ? String(rawData[headerRowIndex][cteColIdx]) : "(nao encontrada)",
+            cteSamples: parsedRows.slice(0, 5).map((row) => row.cteDisplay),
             rowCount: parsedRows.length
           } 
         };
@@ -496,11 +581,121 @@ function reconcileData(transportRows, extratoRows, excelResult) {
           if (!current.tripTotals) current.tripTotals = new Set();
           value.tripTotals.forEach(t => current.tripTotals.add(t));
         }
+        if (value.tripTotalCounts) {
+          if (!current.tripTotalCounts) current.tripTotalCounts = new Map();
+          value.tripTotalCounts.forEach((count, totalKey) => {
+            current.tripTotalCounts.set(
+              totalKey,
+              (current.tripTotalCounts.get(totalKey) || 0) + count
+            );
+          });
+        }
+        if (value.tripKeysByTotal) {
+          if (!current.tripKeysByTotal) current.tripKeysByTotal = new Map();
+          value.tripKeysByTotal.forEach((tripKeys, totalKey) => {
+            if (!current.tripKeysByTotal.has(totalKey)) {
+              current.tripKeysByTotal.set(totalKey, new Set());
+            }
+            tripKeys.forEach((tripKey) => current.tripKeysByTotal.get(totalKey).add(tripKey));
+          });
+        }
+        if (value.tripLinks) {
+          if (!current.tripLinks) current.tripLinks = new Map();
+          value.tripLinks.forEach((trip, tripKey) => current.tripLinks.set(tripKey, trip));
+        }
+        if (value.relatedAmounts) {
+          if (!current.relatedAmounts) current.relatedAmounts = new Set();
+          value.relatedAmounts.forEach((amount) => current.relatedAmounts.add(amount));
+        }
       }
     });
   });
 
+  const transportTrips = new Map();
+  map.forEach((row) => {
+    row.tripLinks?.forEach((trip, tripKey) => transportTrips.set(tripKey, trip));
+  });
+
+  const indexedExcelRows = excelRows.map((row, index) => ({ row, index }));
+  const excelByCte = new Map();
+  const excelByAmount = new Map();
+  indexedExcelRows.forEach((entry) => {
+    const cte = normalizeCte(entry.row.cte);
+    const amountKey = keyFrom(entry.row.amount);
+    if (cte) {
+      if (!excelByCte.has(cte)) excelByCte.set(cte, []);
+      excelByCte.get(cte).push(entry);
+    }
+    if (!excelByAmount.has(amountKey)) excelByAmount.set(amountKey, []);
+    excelByAmount.get(amountKey).push(entry);
+  });
+
+  const hasExcelCtes = excelByCte.size > 0;
+  const usedExcelIndexes = new Set();
+  const tripExcelMatches = new Map();
+
+  transportTrips.forEach((trip, tripKey) => {
+    const cte = normalizeCte(trip.cte);
+    const total = Number(trip.total || 0);
+    let candidates = [];
+    let matchType = "frete";
+
+    if (cte && hasExcelCtes) {
+      candidates = excelByCte.get(cte) || [];
+      matchType = "cte";
+    } else if (total > 0) {
+      candidates = excelByAmount.get(keyFrom(total)) || [];
+    }
+
+    const available = candidates
+      .filter((entry) => !usedExcelIndexes.has(entry.index))
+      .sort((a, b) =>
+        Math.abs(Number(a.row.amount || 0) - total) -
+        Math.abs(Number(b.row.amount || 0) - total)
+      )[0];
+    if (!available) return;
+
+    usedExcelIndexes.add(available.index);
+    tripExcelMatches.set(tripKey, {
+      excelRow: available.row,
+      difference: Number(available.row.amount || 0) - total,
+      matchType,
+    });
+  });
+
+  map.forEach((row) => {
+    if (!hasExcelSource || !row.tripLinks?.size) return;
+    const matches = [...row.tripLinks.keys()]
+      .map((tripKey) => tripExcelMatches.get(tripKey))
+      .filter(Boolean);
+    row.excel = matches.length;
+    row.excelValueMismatchCount = matches.filter(
+      (match) => Math.abs(match.difference) >= 0.005
+    ).length;
+    row.excelValueDifference = matches.reduce((sum, match) => sum + match.difference, 0);
+    row.excelMatchedAmounts = new Set(matches.map((match) => Number(match.excelRow.amount)));
+    row.excelMatchedCtes = new Set(matches.map((match) => normalizeCte(match.excelRow.cte)).filter(Boolean));
+    row.excelMatchByCte = matches.filter((match) => match.matchType === "cte").length;
+  });
+
+  const usedExcelCountsByAmount = new Map();
+  usedExcelIndexes.forEach((index) => {
+    const amountKey = keyFrom(excelRows[index].amount);
+    usedExcelCountsByAmount.set(amountKey, (usedExcelCountsByAmount.get(amountKey) || 0) + 1);
+  });
+  usedExcelCountsByAmount.forEach((matchedCount, amountKey) => {
+    const row = map.get(amountKey);
+    if (row && row.transport === 0 && row.extrato === 0 && row.excel > 0) {
+      row.excel = Math.max(0, row.excel - matchedCount);
+    }
+  });
+
   const rows = [...map.values()]
+    .filter((row) => !(
+      row.transport === 0 &&
+      row.extrato === 0 &&
+      row.excel === 0
+    ))
     .map((row) => {
       let status = "DIVERGENTE";
       const hasTransport = row.transport > 0;
@@ -510,6 +705,7 @@ function reconcileData(transportRows, extratoRows, excelResult) {
         ? [row.transport, row.extrato, row.excel]
         : [row.transport, row.extrato];
       const quantitiesMatch = activeCounts.every((count) => count === activeCounts[0]);
+      const hasExcelValueMismatch = Number(row.excelValueMismatchCount || 0) > 0;
 
       if (!hasExcelSource) {
         if (hasTransport && hasExtrato && quantitiesMatch) {
@@ -522,7 +718,7 @@ function reconcileData(transportRows, extratoRows, excelResult) {
           status = "SEM_PDF_VIAGEM";
         }
       } else if (hasTransport && hasExtrato && hasExcel && quantitiesMatch) {
-        status = "CONCILIADO_3_FONTES";
+        status = hasExcelValueMismatch ? "VALOR_EXCEL_DIVERGENTE" : "CONCILIADO_3_FONTES";
       } else if (hasTransport && hasExtrato && hasExcel) {
         status = "QUANTIDADE_DIVERGENTE";
       } else if (hasTransport && hasExtrato && !hasExcel) {
@@ -550,7 +746,13 @@ function reconcileData(transportRows, extratoRows, excelResult) {
         occurrenceResult: buildOccurrenceResult(row, hasExcelSource),
         excelSourceEnabled: hasExcelSource,
         origens: row.origens ? Array.from(row.origens).join(", ") : "",
-        tripTotals: row.tripTotals ? Array.from(row.tripTotals) : []
+        tripTotals: row.tripTotals ? Array.from(row.tripTotals) : [],
+        tripTotalCounts: undefined,
+        tripKeysByTotal: undefined,
+        tripLinks: undefined,
+        excelMatchedAmounts: row.excelMatchedAmounts ? Array.from(row.excelMatchedAmounts) : [],
+        excelMatchedCtes: row.excelMatchedCtes ? Array.from(row.excelMatchedCtes) : [],
+        relatedAmounts: row.relatedAmounts ? Array.from(row.relatedAmounts) : []
       };
     })
     .sort((a, b) => b.amount - a.amount);

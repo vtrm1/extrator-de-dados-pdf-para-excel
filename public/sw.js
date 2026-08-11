@@ -1,4 +1,4 @@
-const CACHE_NAME = "pdf-sis-v6";
+const CACHE_NAME = "pdf-sis-v16";
 const APP_SHELL = ["/", "/styles.css", "/app.js", "/manifest.webmanifest", "/icons/icon.svg"];
 
 self.addEventListener("install", (event) => {
@@ -33,6 +33,21 @@ self.addEventListener("fetch", (event) => {
   if (url.pathname.startsWith("/api/")) {
     event.respondWith(
       fetch(request).catch(() => new Response("Sem conexao.", { status: 503 }))
+    );
+    return;
+  }
+
+  // A pagina principal deve buscar a versao mais recente primeiro. Isso evita
+  // manter HTML antigo apontando para scripts anteriores apos uma atualizacao.
+  if (request.mode === "navigate") {
+    event.respondWith(
+      fetch(request)
+        .then((response) => {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
+          return response;
+        })
+        .catch(() => caches.match(request).then((cached) => cached || caches.match("/")))
     );
     return;
   }

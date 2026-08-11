@@ -3,6 +3,7 @@ console.log("PDF Sis: Script iniciando...");
 // ─── History Management ───
 const HISTORY_KEY = "pdf_sis_history";
 const MAX_HISTORY = 10;
+const PANEL_WIDTHS_KEY = "pdf_sis_panel_widths";
 
 function saveToHistory(payload) {
   try {
@@ -52,6 +53,7 @@ const reconcileForm = document.querySelector("#reconcile-form");
 const extratoInput = document.querySelector("#extrato-input");
 const excelInput = document.querySelector("#excel-input");
 const reconcileFilter = document.querySelector("#reconcile-filter");
+const globalSourceFilter = document.querySelector("#global-source-filter");
 const reconcileStart = document.querySelector("#reconcile-start");
 const reconcileEnd = document.querySelector("#reconcile-end");
 const reconcileWhatsAppBtn = document.querySelector("#reconcile-whatsapp");
@@ -72,7 +74,9 @@ const summary = document.querySelector("#summary");
 const actions = document.querySelector("#actions");
 const historyBtn = document.querySelector("#history-btn");
 const tableSearch = document.querySelector("#table-search");
+const pdfSearchField = document.querySelector("#pdf-search-field");
 const hidePedagioFilter = document.querySelector("#hide-pedagio-filter");
+const compareGrid = document.querySelector(".compare-grid");
 
 // Table Footer Elements
 const footerFrete = document.querySelector("#footer-frete");
@@ -110,6 +114,7 @@ let selectedReconcileKey = null;
 let selectedCheckboxAmounts = new Set();
 let selectedTripIds = new Set();
 let reconcileTypeFilter = "ALL";
+let globalSourceFilterValue = "all";
 
 let currentPassword = "";
 let pendingPasswordAction = null;
@@ -186,6 +191,208 @@ function asArray(value) {
   return Array.isArray(value) ? value : [];
 }
 
+function hasExcelReconcileSource() {
+  return currentExcelRows.length > 0 ||
+    asArray(currentReconcileRows).some((row) => row.excelSourceEnabled);
+}
+
+function sourceDeficit(row, source) {
+  const counts = [Number(row.transport || 0), Number(row.extrato || 0)];
+  const hasExcel = row.excelSourceEnabled ?? hasExcelReconcileSource();
+  if (hasExcel) counts.push(Number(row.excel || 0));
+  return Number(row[source] || 0) < Math.max(...counts);
+}
+
+function matchesGlobalSourceFilter(row, filterValue = globalSourceFilterValue) {
+  if (filterValue === "all") return true;
+
+  const hasExcel = row.excelSourceEnabled ?? hasExcelReconcileSource();
+  if (filterValue === "three-way") {
+    return hasExcel && row.status === "CONCILIADO_3_FONTES";
+  }
+  if (filterValue === "value-difference") {
+    return hasExcel && Number(row.excelValueMismatchCount || 0) > 0;
+  }
+  if (filterValue === "pending") {
+    return hasExcel
+      ? row.status !== "CONCILIADO_3_FONTES"
+      : row.status !== "MATCH_PDF_EXTRATO";
+  }
+  if (filterValue === "missing-pdf") return sourceDeficit(row, "transport");
+  if (filterValue === "missing-extrato") return sourceDeficit(row, "extrato");
+  if (filterValue === "missing-excel") {
+    return hasExcel && sourceDeficit(row, "excel");
+  }
+  return true;
+}
+
+function getGlobalFilteredAmountKeys() {
+  if (globalSourceFilterValue === "all") return null;
+  return new Set(
+    asArray(currentReconcileRows)
+      .filter((row) => matchesGlobalSourceFilter(row))
+      .map((row) => Number(row.amount || 0).toFixed(2))
+  );
+}
+
+function normalizeCteValue(value) {
+  const digits = String(value ?? "").replace(/\D/g, "");
+  return digits ? (digits.replace(/^0+/, "") || "0") : "";
+}
+
+function getGlobalFilteredExcelCriteria() {
+  if (globalSourceFilterValue === "all") return null;
+
+  const amountKeys = new Set();
+  const cteKeys = new Set();
+  asArray(currentReconcileRows)
+    .filter((row) => matchesGlobalSourceFilter(row))
+    .forEach((row) => {
+      const matchedCtes = asArray(row.excelMatchedCtes).map(normalizeCteValue).filter(Boolean);
+      if (matchedCtes.length > 0) {
+        matchedCtes.forEach((cte) => cteKeys.add(cte));
+        return;
+      }
+
+      amountKeys.add(Number(row.amount || 0).toFixed(2));
+      asArray(row.tripTotals).forEach((total) => {
+        const numericTotal = Number(total);
+        if (Number.isFinite(numericTotal) && numericTotal > 0) {
+          amountKeys.add(numericTotal.toFixed(2));
+        }
+      });
+      asArray(row.excelMatchedAmounts).forEach((amount) => {
+        const numericAmount = Number(amount);
+        if (Number.isFinite(numericAmount) && numericAmount > 0) {
+          amountKeys.add(numericAmount.toFixed(2));
+        }
+      });
+    });
+
+  return { amountKeys, cteKeys };
+}
+
+function updateGlobalSourceFilterOptions() {
+  if (!globalSourceFilter) return;
+
+  const hasExcel = hasExcelReconcileSource();
+  const labels = {
+    all: "Todos os resultados",
+    "three-way": "Conciliados nas 3 fontes",
+    "value-difference": "Diferença de valor no Excel",
+    pending: "Todas as pendências",
+    "missing-pdf": "Falta no PDF",
+    "missing-extrato": "Falta no Extrato",
+    "missing-excel": "Falta no Excel",
+  };
+
+  [...globalSourceFilter.options].forEach((option) => {
+    const requiresExcel = ["three-way", "value-difference", "missing-excel"].includes(option.value);
+    option.hidden = requiresExcel && !hasExcel;
+    option.disabled = requiresExcel && !hasExcel;
+    const count = asArray(currentReconcileRows).filter((row) =>
+      matchesGlobalSourceFilter(row, option.value)
+    ).length;
+    option.textContent = `${labels[option.value]} (${count})`;
+  });
+
+  if (!hasExcel && ["three-way", "value-difference", "missing-excel"].includes(globalSourceFilterValue)) {
+    globalSourceFilterValue = "all";
+    globalSourceFilter.value = "all";
+  }
+}
+
+function applyPanelSizeRatios(ratios) {
+  if (!compareGrid || !Array.isArray(ratios) || ratios.length !== 3) return;
+  const safeRatios = ratios.map((value) => Math.max(0.1, Number(value) || 1));
+  compareGrid.style.setProperty("--pdf-panel-size", `${safeRatios[0]}fr`);
+  compareGrid.style.setProperty("--reconcile-panel-size", `${safeRatios[1]}fr`);
+  compareGrid.style.setProperty("--excel-panel-size", `${safeRatios[2]}fr`);
+}
+
+function resetPanelSizes() {
+  if (!compareGrid) return;
+  compareGrid.style.removeProperty("--pdf-panel-size");
+  compareGrid.style.removeProperty("--reconcile-panel-size");
+  compareGrid.style.removeProperty("--excel-panel-size");
+  localStorage.removeItem(PANEL_WIDTHS_KEY);
+}
+
+function setupPanelResizers() {
+  if (!compareGrid) return;
+
+  try {
+    const savedRatios = JSON.parse(localStorage.getItem(PANEL_WIDTHS_KEY) || "null");
+    if (Array.isArray(savedRatios)) applyPanelSizeRatios(savedRatios);
+  } catch (_error) {
+    localStorage.removeItem(PANEL_WIDTHS_KEY);
+  }
+
+  const panelPdf = document.querySelector("#panel-pdf");
+  const panelReconcile = document.querySelector("#panel-reconcile");
+  const panelExcel = document.querySelector("#panel-excel");
+  const handles = [...compareGrid.querySelectorAll(".panel-resizer")];
+  const minimums = [280, 220, 260];
+
+  handles.forEach((handle) => {
+    handle.addEventListener("dblclick", resetPanelSizes);
+    handle.addEventListener("pointerdown", (event) => {
+      if (window.matchMedia("(max-width: 1400px)").matches) return;
+      event.preventDefault();
+
+      const startX = event.clientX;
+      const startWidths = [panelPdf, panelReconcile, panelExcel].map(
+        (panel) => panel.getBoundingClientRect().width
+      );
+      handle.classList.add("dragging");
+      document.body.classList.add("resizing-panels");
+
+      const onPointerMove = (moveEvent) => {
+        const delta = moveEvent.clientX - startX;
+        const nextWidths = [...startWidths];
+
+        if (handle.dataset.resizer === "pdf-reconcile") {
+          const pairTotal = startWidths[0] + startWidths[1];
+          nextWidths[0] = Math.min(
+            pairTotal - minimums[1],
+            Math.max(minimums[0], startWidths[0] + delta)
+          );
+          nextWidths[1] = pairTotal - nextWidths[0];
+        } else {
+          const pairTotal = startWidths[1] + startWidths[2];
+          nextWidths[1] = Math.min(
+            pairTotal - minimums[2],
+            Math.max(minimums[1], startWidths[1] + delta)
+          );
+          nextWidths[2] = pairTotal - nextWidths[1];
+        }
+
+        applyPanelSizeRatios(nextWidths);
+      };
+
+      const onPointerUp = () => {
+        handle.classList.remove("dragging");
+        document.body.classList.remove("resizing-panels");
+        window.removeEventListener("pointermove", onPointerMove);
+        window.removeEventListener("pointerup", onPointerUp);
+
+        const finalWidths = [panelPdf, panelReconcile, panelExcel].map(
+          (panel) => panel.getBoundingClientRect().width
+        );
+        const total = finalWidths.reduce((sum, width) => sum + width, 0) || 1;
+        localStorage.setItem(
+          PANEL_WIDTHS_KEY,
+          JSON.stringify(finalWidths.map((width) => width / total))
+        );
+        applyPanelSizeRatios(finalWidths.map((width) => width / total));
+      };
+
+      window.addEventListener("pointermove", onPointerMove);
+      window.addEventListener("pointerup", onPointerUp, { once: true });
+    });
+  });
+}
+
 function fixMojibake(value) {
   const safeValue = String(value || "");
   const pairs = [
@@ -227,6 +434,25 @@ function parseBrCurrencyToNumber(value) {
   return Number.isFinite(number) ? number : null;
 }
 
+function parseFlexibleCurrencySearch(value) {
+  let clean = String(value || "")
+    .replace(/[R$\s]/g, "")
+    .replace(/[^\d,.-]/g, "");
+  if (!clean || !/\d/.test(clean)) return null;
+
+  if (clean.includes(",")) {
+    clean = clean.replace(/\./g, "").replace(",", ".");
+  } else {
+    const dotCount = (clean.match(/\./g) || []).length;
+    if (dotCount > 1 || (dotCount === 1 && !/\.\d{2}$/.test(clean))) {
+      clean = clean.replace(/\./g, "");
+    }
+  }
+
+  const number = Number(clean);
+  return Number.isFinite(number) ? number : null;
+}
+
 function dateToIso(value) {
   const text = String(value || "");
   const match = text.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
@@ -246,6 +472,27 @@ function getTransportAmountsForMatch(row) {
     return [adt, sdo].filter((n) => n != null && n > 0);
   }
   return [frete].filter((n) => n != null && n > 0);
+}
+
+function getRelatedParcelAmountsFromPdf(clickedAmount) {
+  const target = Number(clickedAmount).toFixed(2);
+  const related = new Map();
+
+  asArray(currentRows).forEach((row) => {
+    const adt = row.valor_adiantamento_num ?? parseBrCurrencyToNumber(row.valor_adiantamento);
+    const sdo = row.valor_saldo_num ?? parseBrCurrencyToNumber(row.valor_saldo);
+    const adtKey = adt != null && adt > 0 ? Number(adt).toFixed(2) : "";
+    const sdoKey = sdo != null && sdo > 0 ? Number(sdo).toFixed(2) : "";
+
+    if (adtKey === target && sdoKey && sdoKey !== target) {
+      related.set(sdoKey, Number(sdo));
+    }
+    if (sdoKey === target && adtKey && adtKey !== target) {
+      related.set(adtKey, Number(adt));
+    }
+  });
+
+  return [...related.values()];
 }
 
 function isRowLinkedToReconcile(row) {
@@ -447,7 +694,15 @@ function renderTable(rows) {
 }
 
 function renderExcelTable(rows) {
-  const safeRows = asArray(rows);
+  let safeRows = asArray(rows);
+  const globalCriteria = getGlobalFilteredExcelCriteria();
+  if (globalCriteria) {
+    safeRows = safeRows.filter((row) => {
+      const cte = normalizeCteValue(row.cte);
+      return (cte && globalCriteria.cteKeys.has(cte)) ||
+        globalCriteria.amountKeys.has(Number(row.amount || 0).toFixed(2));
+    });
+  }
   console.log("Rendering Excel Table, rows:", safeRows.length, "SelectedKey:", selectedReconcileKey);
   const currency = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 
@@ -457,19 +712,31 @@ function renderExcelTable(rows) {
         let rowClass = "";
         if (selectedReconcileKey) {
           const amountNum = Number(row.amount || 0);
+          const cteTargets = asArray(selectedReconcileKey.excelMatchedCtes)
+            .map(normalizeCteValue)
+            .filter(Boolean);
+          const matchesLinkedCte = cteTargets.includes(normalizeCteValue(row.cte));
           const matchesAmount = amountNum.toFixed(2) === selectedReconcileKey.amount;
           
           // NEW: Match with tripTotals if clicking on a reconcile parcel
           const matchesTripTotal = selectedReconcileKey.tripTotals && 
                                   selectedReconcileKey.tripTotals.some(t => Number(t).toFixed(2) === amountNum.toFixed(2));
+          const matchesLinkedExcelAmount = selectedReconcileKey.excelMatchedAmounts &&
+            selectedReconcileKey.excelMatchedAmounts.some(
+              (value) => Number(value).toFixed(2) === amountNum.toFixed(2)
+            );
 
-          if (matchesAmount || matchesTripTotal) {
+          const matchesSelection = cteTargets.length > 0
+            ? matchesLinkedCte
+            : (matchesAmount || matchesTripTotal || matchesLinkedExcelAmount);
+          if (matchesSelection) {
             rowClass = "linked-row-match";
             console.log("Excel match found!", row.amount, rowClass);
           }
         }
         return `
         <tr class="${rowClass}">
+          <td>${row.cteDisplay || row.cte || ""}</td>
           <td>${row.placa || ""}</td>
           <td>${currency.format(row.amount || 0)}</td>
         </tr>
@@ -556,6 +823,7 @@ function reconcileStatusMeta(status) {
     SO_EXTRATO: "Somente Extrato",
     SO_EXCEL: "Somente Excel",
     QUANTIDADE_DIVERGENTE: "Quantidade divergente",
+    VALOR_EXCEL_DIVERGENTE: "Valor Excel divergente",
     DIVERGENTE: "Divergente",
   };
 
@@ -581,6 +849,13 @@ function reconcileStatusMeta(status) {
 }
 
 function reconcileObservation(row) {
+  if (Number(row.excelValueMismatchCount || 0) > 0) {
+    const currency = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
+    const difference = Number(row.excelValueDifference || 0);
+    const sign = difference > 0 ? "+" : "";
+    const cteLabel = Number(row.excelValueMismatchCount) === 1 ? "CT-e" : "CT-es";
+    return `Diferença Excel x PDF: ${sign}${currency.format(difference)} (${row.excelValueMismatchCount} ${cteLabel})`;
+  }
   if (row.occurrenceResult) {
     return row.occurrenceResult;
   }
@@ -628,8 +903,23 @@ function renderReconcileTable(rows) {
   });
 
   const severity = { match: 0, warn: 1, error: 2 };
+  const selectedAmount = selectedReconcileKey?.amount || "";
+  const relatedAmountKeys = new Set(
+    asArray(selectedReconcileKey?.relatedAmounts).map((amount) => Number(amount).toFixed(2))
+  );
   const filtered = asArray(rows)
     .filter((row) => {
+      if (!matchesGlobalSourceFilter(row)) return false;
+
+      const amountStr = Number(row.amount || 0).toFixed(2);
+      const isSelectedOrRelated =
+        Boolean(selectedReconcileKey) &&
+        (amountStr === selectedAmount || relatedAmountKeys.has(amountStr));
+
+      // Mantém a parcela clicada e suas possíveis ADT/SDO parceiras visíveis,
+      // mesmo quando outro filtro da conferência estiver ativo.
+      if (isSelectedOrRelated) return true;
+
       // Type filter (ADT/SDO)
       if (typeof reconcileTypeFilter !== "undefined" && reconcileTypeFilter !== "ALL") {
         const origens = String(row.origens || "").toUpperCase();
@@ -638,7 +928,6 @@ function renderReconcileTable(rows) {
 
       // Selection filter (Checkboxes)
       if (typeof selectedCheckboxAmounts !== "undefined" && selectedCheckboxAmounts.size > 0) {
-        const amountStr = Number(row.amount || 0).toFixed(2);
         return selectedCheckboxAmounts.has(amountStr) || amountStr === selectedReconcileKey?.amount;
       }
 
@@ -664,6 +953,25 @@ function renderReconcileTable(rows) {
       return Number(b.amount || 0) - Number(a.amount || 0); // Sort largest amounts first
     });
 
+  if (selectedReconcileKey && relatedAmountKeys.size > 0) {
+    const selectedIndex = filtered.findIndex(
+      (row) => Number(row.amount || 0).toFixed(2) === selectedAmount
+    );
+    if (selectedIndex >= 0) {
+      const relatedRows = filtered.filter((row) =>
+        relatedAmountKeys.has(Number(row.amount || 0).toFixed(2))
+      );
+      relatedRows.forEach((relatedRow) => {
+        const index = filtered.indexOf(relatedRow);
+        if (index >= 0) filtered.splice(index, 1);
+      });
+      const updatedSelectedIndex = filtered.findIndex(
+        (row) => Number(row.amount || 0).toFixed(2) === selectedAmount
+      );
+      filtered.splice(updatedSelectedIndex + 1, 0, ...relatedRows);
+    }
+  }
+
   // Calculate pending total
   const pendingTotal = filtered
     .filter(r => !r.status.startsWith("MATCH") && !r.status.startsWith("CONCILIADO"))
@@ -678,6 +986,7 @@ function renderReconcileTable(rows) {
       const amountFixed = Number(row.amount || 0).toFixed(2);
       const isSelected =
         selectedReconcileKey && selectedReconcileKey.amount === amountFixed;
+      const isRelated = !isSelected && relatedAmountKeys.has(amountFixed);
       const showExcelOccurrences = row.excelSourceEnabled ?? currentExcelRows.length > 0;
         
       const origensTag = row.origens 
@@ -685,7 +994,7 @@ function renderReconcileTable(rows) {
         : "";
 
       return `
-      <tr class="reconcile-row ${meta.rowClass} ${isSelected ? "selected" : ""}" data-amount="${amountFixed}">
+      <tr class="reconcile-row ${meta.rowClass} ${isSelected ? "selected" : ""} ${isRelated ? "related-parcel" : ""}" data-amount="${amountFixed}">
         <td>
           ${currency.format(row.amount || 0)}
           ${origensTag}
@@ -726,9 +1035,22 @@ function renderReconcileTable(rows) {
         selectedReconcileKey = null;
       } else {
         const rowData = filtered.find(r => Number(r.amount).toFixed(2) === amount);
+        const relatedFromBackend = asArray(rowData?.relatedAmounts);
+        const relatedFromPdf = getRelatedParcelAmountsFromPdf(amount);
+        const relatedAmounts = [
+          ...new Map(
+            [...relatedFromBackend, ...relatedFromPdf].map((value) => [
+              Number(value).toFixed(2),
+              Number(value),
+            ])
+          ).values(),
+        ];
         selectedReconcileKey = { 
           amount, 
-          tripTotals: rowData ? rowData.tripTotals : [] 
+          tripTotals: rowData ? rowData.tripTotals : [],
+          excelMatchedAmounts: rowData ? rowData.excelMatchedAmounts : [],
+          excelMatchedCtes: rowData ? rowData.excelMatchedCtes : [],
+          relatedAmounts
         };
       }
 
@@ -753,6 +1075,17 @@ function renderReconcileTable(rows) {
   });
 }
 
+document.addEventListener("click", (event) => {
+  if (!selectedReconcileKey || event.target.closest(".reconcile-row")) {
+    return;
+  }
+
+  selectedReconcileKey = null;
+  renderReconcileTable(currentReconcileRows);
+  renderTable(getVisibleRows());
+  renderExcelTable(currentExcelRows);
+});
+
 function buildPagesFromRows(rows) {
   const safeRows = asArray(rows);
   const pageNumbers = [...new Set(safeRows.map((row) => row.pagina_pdf).filter(Boolean))];
@@ -776,11 +1109,37 @@ function getVisibleRows() {
 
   // Search Filter
   const query = (tableSearch.value || "").toLowerCase().trim();
+  const searchField = pdfSearchField?.value || "all";
   if (query) {
-    safeRows = safeRows.filter(row => 
-      String(row.placa || "").toLowerCase().includes(query) ||
-      String(row.numero_documento || "").toLowerCase().includes(query) ||
-      String(row.id_viagem || "").toLowerCase().includes(query)
+    const searchedAmount = parseFlexibleCurrencySearch(query);
+    const normalizedPlateQuery = query.replace(/[^a-z0-9]/g, "");
+    safeRows = safeRows.filter((row) => {
+      const plate = String(row.placa || "").toLowerCase();
+      const matchesPlate = plate.includes(query) || (
+        normalizedPlateQuery.length > 0 &&
+        plate.replace(/[^a-z0-9]/g, "").includes(normalizedPlateQuery)
+      );
+      const matchesDocument = String(row.numero_documento || "").toLowerCase().includes(query);
+      const matchesTrip = String(row.id_viagem || "").toLowerCase().includes(query);
+      const freight = row.valor_frete_num != null
+        ? Number(row.valor_frete_num)
+        : parseBrCurrencyToNumber(row.valor_frete);
+      const matchesFreight =
+        (searchedAmount != null && freight != null && Math.abs(freight - searchedAmount) < 0.005) ||
+        String(row.valor_frete || "").toLowerCase().includes(query);
+
+      if (searchField === "placa") return matchesPlate;
+      if (searchField === "frete") return matchesFreight;
+      return matchesPlate || matchesDocument || matchesTrip || matchesFreight;
+    });
+  }
+
+  const globalAmountKeys = getGlobalFilteredAmountKeys();
+  if (globalAmountKeys) {
+    safeRows = safeRows.filter((row) =>
+      getTransportAmountsForMatch(row).some((amount) =>
+        globalAmountKeys.has(Number(amount).toFixed(2))
+      )
     );
   }
 
@@ -1028,6 +1387,18 @@ tableSearch.addEventListener("input", () => {
   renderTable(getVisibleRows());
 });
 
+if (pdfSearchField) {
+  pdfSearchField.addEventListener("change", () => {
+    const placeholders = {
+      all: "Buscar por placa, CT-e ou frete...",
+      placa: "Digite a placa...",
+      frete: "Digite o valor do frete...",
+    };
+    tableSearch.placeholder = placeholders[pdfSearchField.value] || placeholders.all;
+    renderTable(getVisibleRows());
+  });
+}
+
 if (hidePedagioFilter) {
   hidePedagioFilter.addEventListener("change", () => {
     renderTable(getVisibleRows());
@@ -1086,6 +1457,8 @@ function renderHistoryList() {
         if (item.reconcile) {
           currentReconcileRows = item.reconcile.rows || [];
           currentExcelRows = item.reconcile.excelRows || [];
+          updateGlobalSourceFilterOptions();
+          renderTable(getVisibleRows());
           renderReconcileSummary(item.reconcile.summary, item.reconcile.sourceCounts);
           renderReconcileTable(currentReconcileRows);
           renderExcelTable(currentExcelRows);
@@ -1093,6 +1466,7 @@ function renderHistoryList() {
         } else {
           currentReconcileRows = [];
           currentExcelRows = [];
+          updateGlobalSourceFilterOptions();
           reconcileSummary.classList.add("hidden");
           renderReconcileTable([]);
           renderExcelTable([]);
@@ -1330,6 +1704,8 @@ reconcileForm.addEventListener("submit", async (event) => {
     renderReconcileSummary(payload.summary, payload.sourceCounts);
     currentReconcileRows = asArray(payload.rows);
     currentExcelRows = asArray(payload.rawExcel); 
+    updateGlobalSourceFilterOptions();
+    renderTable(getVisibleRows());
     
     renderReconcileTable(currentReconcileRows);
     renderExcelTable(currentExcelRows); 
@@ -1371,6 +1747,7 @@ reconcileForm.addEventListener("submit", async (event) => {
     currentReconcileRows = [];
     currentExcelRows = [];
     selectedReconcileKey = null;
+    updateGlobalSourceFilterOptions();
     renderReconcileTable([]);
     renderExcelTable([]);
     setReconcileStatus(error.message || "Falha na conciliacao.", "error");
@@ -1384,13 +1761,33 @@ reconcileFilter.addEventListener("change", () => {
   renderExcelTable(currentExcelRows);
 });
 
+if (globalSourceFilter) {
+  globalSourceFilter.addEventListener("change", () => {
+    globalSourceFilterValue = globalSourceFilter.value;
+    selectedReconcileKey = null;
+    selectedCheckboxAmounts.clear();
+    selectedTripIds.clear();
+    reconcileFilter.value = "all";
+    reconcileTypeFilter = "ALL";
+    if (reconcileTypeFilterSelect) reconcileTypeFilterSelect.value = "ALL";
+    const checkAll = document.querySelector("#select-all-pdf");
+    if (checkAll) checkAll.checked = false;
+
+    renderTable(getVisibleRows());
+    renderReconcileTable(currentReconcileRows);
+    renderExcelTable(currentExcelRows);
+  });
+}
+
 [reconcileStart, reconcileEnd].forEach(el => {
   el.addEventListener("change", () => renderReconcileTable(currentReconcileRows));
 });
 
 reconcileWhatsAppBtn.addEventListener("click", () => {
   try {
-    const message = summarizeReconcileForWhatsApp(currentReconcileRows);
+    const message = summarizeReconcileForWhatsApp(
+      currentReconcileRows.filter((row) => matchesGlobalSourceFilter(row))
+    );
     const url = `https://wa.me/?text=${encodeURIComponent(message)}`;
     window.open(url, "_blank");
   } catch (err) {
@@ -1413,7 +1810,9 @@ if (clearReconcileFiltersBtn) {
     selectedTripIds.clear();
     selectedReconcileKey = null;
     reconcileTypeFilter = "ALL";
+    globalSourceFilterValue = "all";
     if (reconcileTypeFilterSelect) reconcileTypeFilterSelect.value = "ALL";
+    if (globalSourceFilter) globalSourceFilter.value = "all";
     
     // Reset Select All checkbox
     const checkAll = document.querySelector("#select-all-pdf");
@@ -1432,7 +1831,9 @@ reconcileExportBtn.addEventListener("click", async () => {
   const response = await fetch("/api/export-reconcile", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ rows: currentReconcileRows }),
+    body: JSON.stringify({
+      rows: currentReconcileRows.filter((row) => matchesGlobalSourceFilter(row)),
+    }),
   });
 
   if (!response.ok) {
@@ -1507,6 +1908,9 @@ document.addEventListener("keydown", (e) => {
     closeTableModal();
   }
 });
+
+updateGlobalSourceFilterOptions();
+setupPanelResizers();
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", async () => {

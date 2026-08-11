@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/styles.css?v=5" />
+    <link rel="stylesheet" href="/styles.css?v=9" />
   </head>
   <body>
     <main class="page">
@@ -102,10 +102,22 @@
         </form>
         <div id="reconcile-status" class="status"></div>
         <div class="reconcile-help">
-          PDF Viagem usa ADT/SDO quando existir (e Frete quando nao existir parcela). Extrato e Excel comparam por Data + Valor.
+          PDF Viagem usa ADT/SDO quando existir (e Frete quando nao existir parcela). O Excel &eacute; vinculado pelo CT-e da aba Detalhes e o valor do frete &eacute; conferido depois.
           Clique em uma linha da conferencia para destacar os itens correspondentes nas tabelas extraidas.
         </div>
         <div class="dashboard-row">
+          <label class="select-wrap global-source-filter-wrap">
+            <span>Filtro das 3 fontes</span>
+            <select id="global-source-filter">
+              <option value="all">Todos os resultados</option>
+              <option value="three-way">Conciliados nas 3 fontes</option>
+              <option value="value-difference">Diferen&ccedil;a de valor no Excel</option>
+              <option value="pending">Todas as pend&ecirc;ncias</option>
+              <option value="missing-pdf">Falta no PDF</option>
+              <option value="missing-extrato">Falta no Extrato</option>
+              <option value="missing-excel">Falta no Excel</option>
+            </select>
+          </label>
           <label class="select-wrap reconcile-filter">
             <span>Filtro</span>
             <select id="reconcile-filter">
@@ -143,7 +155,12 @@
           </h3>
           <div class="search-wrap">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;opacity:0.4;"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-            <input type="text" id="table-search" class="search-input" placeholder="Buscar por placa ou CT-e...">
+            <select id="pdf-search-field" class="search-field-select" title="Escolher campo da busca" aria-label="Campo da busca">
+              <option value="all">Todos</option>
+              <option value="placa">Placa</option>
+              <option value="frete">Frete</option>
+            </select>
+            <input type="text" id="table-search" class="search-input" placeholder="Buscar por placa, CT-e ou frete..." aria-label="Texto da busca">
             <label class="column-filter" title="Ocultar as linhas que contêm somente pedágio">
               <input type="checkbox" id="hide-pedagio-filter">
               Ocultar linhas de pedágio
@@ -185,6 +202,8 @@
           </div>
         </section>
 
+        <div class="panel-resizer" data-resizer="pdf-reconcile" title="Arraste para redimensionar. Duplo clique para restaurar."></div>
+
         <section class="table-panel" id="panel-reconcile">
           <h3 class="table-title">
             <span>Conferencia<span class="record-count" id="count-reconcile"></span></span>
@@ -221,6 +240,8 @@
           </div>
         </section>
 
+        <div class="panel-resizer" data-resizer="reconcile-excel" title="Arraste para redimensionar. Duplo clique para restaurar."></div>
+
         <section class="table-panel" id="panel-excel">
           <h3 class="table-title">
             <span>Dados Excel<span class="record-count" id="count-excel"></span></span>
@@ -232,6 +253,7 @@
             <table id="excel-table" class="results-table hidden">
               <thead>
                 <tr>
+                  <th>CT-e</th>
                   <th>Placa</th>
                   <th>Valor</th>
                 </tr>
@@ -354,6 +376,6 @@
       </div>
     </div>
 
-    <script type="module" src="/app.js?v=5"></script>
+    <script type="module" src="/app.js?v=15"></script>
   </body>
 </html>

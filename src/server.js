@@ -291,6 +291,8 @@ app.post("/api/export-reconcile", (req, res) => {
       "Ocorrencias PDF": r.transport || 0,
       "Ocorrencias Extrato": r.extrato || 0,
       "Ocorrencias Excel": r.excelSourceEnabled ? (r.excel || 0) : "Nao enviado",
+      "CT-es encontrados no Excel": Array.isArray(r.excelMatchedCtes) ? r.excelMatchedCtes.join(", ") : "",
+      "Diferenca Excel x PDF": Number(r.excelValueDifference || 0),
       Resultado: r.occurrenceResult || "",
     }));
     const ws = XLSX.utils.json_to_sheet(exportRows);
