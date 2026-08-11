@@ -18,10 +18,10 @@ async function extractTripsWithGemini(buffer) {
     const prompt = `
     Você é um extrator de dados de relatórios de transporte.
     Analise este PDF e extraia os dados de TODAS as viagens de forma estruturada.
-    Liste todas as viagens que encontrar (cada viagem costuma ter um número de CONHECIMENTO e ID).
+    Liste todas as viagens que encontrar (cada viagem costuma ter um número de CT-e e ID).
 
     Preencha as seguintes chaves no JSON para cada viagem encontrada:
-    - "conhecimento" (número do CONHECIMENTO)
+    - "cte" (número do CT-e; não confundir com CONHECIMENTO)
     - "id_viagem" (ID da Viagem)
     - "data_cadastro" (Data do Cadastro)
     - "data_embarque" (Data do Embarque)
@@ -36,7 +36,7 @@ async function extractTripsWithGemini(buffer) {
     {
       "viagens": [
         {
-           "conhecimento": "123",
+           "cte": "123",
            "id_viagem": "456",
            "data_cadastro": "10/05/2026",
            "data_embarque": "10/05/2026",
@@ -92,7 +92,7 @@ async function extractTripsWithGemini(buffer) {
 
       return {
         pagina_pdf: "OCR", // Marcador indicando que veio da IA, não sabemos a página exata de forma trivial
-        numero_documento: v.conhecimento || "",
+        numero_documento: v.cte || v.conhecimento || "",
         id_viagem: v.id_viagem || "",
         data_cadastro: v.data_cadastro || "",
         data_embarque: v.data_embarque || "",

@@ -72,6 +72,7 @@ const summary = document.querySelector("#summary");
 const actions = document.querySelector("#actions");
 const historyBtn = document.querySelector("#history-btn");
 const tableSearch = document.querySelector("#table-search");
+const hidePedagioFilter = document.querySelector("#hide-pedagio-filter");
 
 // Table Footer Elements
 const footerFrete = document.querySelector("#footer-frete");
@@ -171,7 +172,7 @@ function setReconcileStatus(message, type = "neutral") {
 }
 
 const whatsappFieldDefs = [
-  { key: "numero_documento", label: "Documento" },
+  { key: "numero_documento", label: "CT-e" },
   { key: "id_viagem", label: "ID viagem" },
   { key: "placa", label: "Placa" },
   { key: "valor_frete", label: "Frete" },
@@ -373,7 +374,7 @@ function renderTable(rows) {
           <td>${row.valor_frete || ""}</td>
           <td>${row.valor_adiantamento || ""}${isMismatch ? '<span class="warning-icon" title="Parcela faltando?">\u26a0\ufe0f</span>' : ''}</td>
           <td>${row.valor_saldo || ""}</td>
-          <td>${row.valor_pedagio || ""}</td>
+          <td class="pedagio-column">${row.valor_pedagio || ""}</td>
           <td>${row.valor_total || ""}</td>
         </tr>
       `;
@@ -554,6 +555,7 @@ function reconcileStatusMeta(status) {
     SO_PDF_VIAGEM: "Somente PDF Viagem",
     SO_EXTRATO: "Somente Extrato",
     SO_EXCEL: "Somente Excel",
+    QUANTIDADE_DIVERGENTE: "Quantidade divergente",
     DIVERGENTE: "Divergente",
   };
 
@@ -579,6 +581,9 @@ function reconcileStatusMeta(status) {
 }
 
 function reconcileObservation(row) {
+  if (row.occurrenceResult) {
+    return row.occurrenceResult;
+  }
   if (row.status === "MATCH_PDF_EXTRATO" || row.status === "MATCH_PARCIAL_PDF_EXTRATO") {
     return "PDF e extrato conferem";
   }
@@ -609,7 +614,7 @@ function summarizeReconcileForWhatsApp(rows) {
   
   filtered.slice(0, 20).forEach(r => {
     const status = reconcileStatusMeta(r.status).label;
-    msg += `\u2022 ${r.date}: ${currency.format(r.amount)} (${status})\n`;
+    msg += `\u2022 ${r.date}: ${currency.format(r.amount)} (${status}) - ${reconcileObservation(r)}\n`;
   });
 
   if (filtered.length > 20) msg += `\n... e mais ${filtered.length - 20} itens.`;
@@ -673,6 +678,7 @@ function renderReconcileTable(rows) {
       const amountFixed = Number(row.amount || 0).toFixed(2);
       const isSelected =
         selectedReconcileKey && selectedReconcileKey.amount === amountFixed;
+      const showExcelOccurrences = row.excelSourceEnabled ?? currentExcelRows.length > 0;
         
       const origensTag = row.origens 
         ? `<span style="font-size: 0.75rem; background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px; border: 1px solid var(--line); margin-left: 8px;">${row.origens}</span>` 
@@ -684,7 +690,17 @@ function renderReconcileTable(rows) {
           ${currency.format(row.amount || 0)}
           ${origensTag}
         </td>
-        <td><span class="status-badge ${meta.badgeClass}">${meta.label}</span></td>
+        <td>
+          <div class="occurrence-counts">
+            <span>PDF <strong>${row.transport || 0}</strong></span>
+            <span>Extrato <strong>${row.extrato || 0}</strong></span>
+            ${showExcelOccurrences ? `<span>Excel <strong>${row.excel || 0}</strong></span>` : ""}
+          </div>
+        </td>
+        <td>
+          <span class="status-badge ${meta.badgeClass}">${meta.label}</span>
+          <small class="occurrence-result">${reconcileObservation(row)}</small>
+        </td>
       </tr>
     `;
     })
@@ -752,6 +768,12 @@ function buildPagesFromRows(rows) {
 function getVisibleRows() {
   let safeRows = asArray(currentRows);
 
+  // Algumas viagens chegam em duas linhas: uma com frete/parcelas e outra
+  // exclusivamente com o pedágio. O filtro remove somente a linha de pedágio.
+  if (hidePedagioFilter?.checked) {
+    safeRows = safeRows.filter((row) => !isPedagioOnlyRow(row));
+  }
+
   // Search Filter
   const query = (tableSearch.value || "").toLowerCase().trim();
   if (query) {
@@ -769,6 +791,15 @@ function getVisibleRows() {
   return safeRows.filter(
     (row) => String(row.pagina_pdf) === String(pageFilter.value)
   );
+}
+
+function isPedagioOnlyRow(row) {
+  const pedagio = parseBrCurrencyToNumber(row.valor_pedagio) || 0;
+  const frete = parseBrCurrencyToNumber(row.valor_frete) || 0;
+  const adiantamento = parseBrCurrencyToNumber(row.valor_adiantamento) || 0;
+  const saldo = parseBrCurrencyToNumber(row.valor_saldo) || 0;
+
+  return pedagio > 0 && frete === 0 && adiantamento === 0 && saldo === 0;
 }
 
 function syncPageFilter(value) {
@@ -996,6 +1027,12 @@ dropZone.addEventListener("drop", (event) => {
 tableSearch.addEventListener("input", () => {
   renderTable(getVisibleRows());
 });
+
+if (hidePedagioFilter) {
+  hidePedagioFilter.addEventListener("change", () => {
+    renderTable(getVisibleRows());
+  });
+}
 
 function openHistoryModal() {
   renderHistoryList();

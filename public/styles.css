@@ -612,10 +612,49 @@ button.secondary:hover:not(:disabled) {
   flex-direction: column;
 }
 
+.column-filter {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.column-filter input {
+  accent-color: var(--accent);
+}
+
 .results-table {
   width: 100%;
   border-collapse: separate;
   border-spacing: 0;
+}
+
+.occurrence-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.occurrence-counts span {
+  padding: 3px 7px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg-secondary);
+  white-space: nowrap;
+  font-size: 0.72rem;
+}
+
+.occurrence-result {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.35;
 }
 
 .results-table th {
@@ -1218,8 +1257,8 @@ button.loading {
 /* ─── Scrollbar ─── */
 .table-wrap::-webkit-scrollbar,
 .table-modal-body::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 12px;
+  height: 12px;
 }
 
 .table-wrap::-webkit-scrollbar-track,
@@ -1231,6 +1270,14 @@ button.loading {
 .table-modal-body::-webkit-scrollbar-thumb {
   background: #d1d5db;
   border-radius: 99px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.table-wrap,
+.table-modal-body {
+  scrollbar-width: auto;
+  scrollbar-color: #d1d5db transparent;
 }
 
 .table-wrap::-webkit-scrollbar-thumb:hover,

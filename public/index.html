@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/styles.css?v=2" />
+    <link rel="stylesheet" href="/styles.css?v=5" />
   </head>
   <body>
     <main class="page">
@@ -53,7 +53,7 @@
             <select id="export-mode">
               <option value="all">Tudo em uma planilha</option>
               <option value="by-page">Separar por p&aacute;gina</option>
-              <option value="by-document">Separar por documento</option>
+              <option value="by-document">Separar por CT-e</option>
             </select>
           </label>
           <label class="select-wrap">
@@ -67,7 +67,7 @@
         </div>
         <div id="whatsapp-fields" class="whatsapp-fields hidden">
           <p>Campos no WhatsApp</p>
-          <label><input type="checkbox" data-wa-field="numero_documento" checked /> Documento</label>
+          <label><input type="checkbox" data-wa-field="numero_documento" checked /> CT-e</label>
           <label><input type="checkbox" data-wa-field="id_viagem" checked /> ID viagem</label>
           <label><input type="checkbox" data-wa-field="placa" /> Placa</label>
           <label><input type="checkbox" data-wa-field="valor_frete" checked /> Frete</label>
@@ -143,7 +143,11 @@
           </h3>
           <div class="search-wrap">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;opacity:0.4;"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-            <input type="text" id="table-search" class="search-input" placeholder="Buscar por placa ou documento...">
+            <input type="text" id="table-search" class="search-input" placeholder="Buscar por placa ou CT-e...">
+            <label class="column-filter" title="Ocultar as linhas que contêm somente pedágio">
+              <input type="checkbox" id="hide-pedagio-filter">
+              Ocultar linhas de pedágio
+            </label>
           </div>
           <div class="table-wrap">
             <table id="results-table" class="results-table hidden">
@@ -152,13 +156,13 @@
                   <th style="width: 40px; text-align: center;"><input type="checkbox" id="select-all-pdf" title="Selecionar todos"></th>
                   <th>Data</th>
                   <th>P&aacute;g</th>
-                  <th>Conhecimento</th>
+                  <th>CT-e</th>
                   <th>Viagem</th>
                   <th>Placa</th>
                   <th>Frete</th>
                   <th>Adiantamento</th>
                   <th>Saldo</th>
-                  <th>Ped&aacute;gio</th>
+                  <th class="pedagio-column">Ped&aacute;gio</th>
                   <th>Total</th>
                 </tr>
               </thead>
@@ -169,7 +173,7 @@
                   <th id="footer-frete">R$ 0,00</th>
                   <th id="footer-adt">R$ 0,00</th>
                   <th id="footer-sdo">R$ 0,00</th>
-                  <th id="footer-pedagio">-</th>
+                  <th id="footer-pedagio" class="pedagio-column">-</th>
                   <th id="footer-total">R$ 0,00</th>
                 </tr>
               </tfoot>
@@ -204,7 +208,8 @@
               <thead>
                 <tr>
                   <th>Valor</th>
-                  <th>Status</th>
+                  <th>Ocorr&ecirc;ncias</th>
+                  <th>Resultado</th>
                 </tr>
               </thead>
               <tbody></tbody>
@@ -349,6 +354,6 @@
       </div>
     </div>
 
-    <script type="module" src="/app.js?v=2"></script>
+    <script type="module" src="/app.js?v=5"></script>
   </body>
 </html>

@@ -1,5 +1,7 @@
 const { PDFParse } = require("pdf-parse");
 const XLSX = require("xlsx");
+const path = require("path");
+const { pathToFileURL } = require("url");
 
 function parseBrCurrencyToNumber(value) {
   if (value == null || value === "") {
@@ -36,15 +38,35 @@ function parseExtratoCurrencyToNumber(text) {
     return null;
   }
 
-  const match = String(text).match(/([+-])\s*([0-9]+(?:[.,][0-9]{2}))$/);
+  const match = String(text).match(/([+-])\s*([0-9][0-9.,]*[.,][0-9]{2})$/);
   if (!match) {
     return null;
   }
 
   const sign = match[1] === "-" ? -1 : 1;
-  const number = Number(match[2].replace(",", "."));
+  const raw = match[2];
+  const lastComma = raw.lastIndexOf(",");
+  const lastDot = raw.lastIndexOf(".");
+  const decimalIndex = Math.max(lastComma, lastDot);
+  const normalized = `${raw.slice(0, decimalIndex).replace(/[.,]/g, "")}.${raw.slice(decimalIndex + 1)}`;
+  const number = Number(normalized);
   return Number.isFinite(number) ? number * sign : null;
 }
+
+const EXTRATO_MONTH_MAP = {
+  "jan.": "01",
+  "fev.": "02",
+  "mar.": "03",
+  "abr.": "04",
+  "mai.": "05",
+  "jun.": "06",
+  "jul.": "07",
+  "ago.": "08",
+  "set.": "09",
+  "out.": "10",
+  "nov.": "11",
+  "dez.": "12",
+};
 
 function dateToISO(dateText) {
   const match = String(dateText || "").match(/^(\d{2})\/(\d{2})\/(\d{4})/);
@@ -163,6 +185,141 @@ function parseTransportRows(rows) {
   return out;
 }
 
+function parseExtratoTextLines(lines, yearFallback) {
+  let currentDay = "";
+  let currentMonth = "";
+  const rows = [];
+
+  lines.forEach((line) => {
+    const dayMonthInline = line.match(
+      /^(\d{1,2})\s+(jan\.|fev\.|mar\.|abr\.|mai\.|jun\.|jul\.|ago\.|set\.|out\.|nov\.|dez\.)\s+/i
+    );
+    if (dayMonthInline) {
+      currentDay = String(dayMonthInline[1]).padStart(2, "0");
+      currentMonth = EXTRATO_MONTH_MAP[dayMonthInline[2].toLowerCase()] || currentMonth;
+    }
+
+    const dayOnly = line.match(/^(\d{1,2})$/);
+    if (dayOnly) {
+      currentDay = String(dayOnly[1]).padStart(2, "0");
+      return;
+    }
+
+    const monthInline = line.match(
+      /^(jan\.|fev\.|mar\.|abr\.|mai\.|jun\.|jul\.|ago\.|set\.|out\.|nov\.|dez\.)\s+/i
+    );
+    if (monthInline) {
+      currentMonth = EXTRATO_MONTH_MAP[monthInline[1].toLowerCase()] || "";
+    }
+
+    if (!/AUTH PAGAMENTO\*\*/i.test(line)) {
+      return;
+    }
+
+    const valueMatch = line.match(/R\$\s*([+-]\s*[0-9][0-9.,]*[.,][0-9]{2})$/);
+    if (!valueMatch) {
+      return;
+    }
+
+    const signedAmount = parseExtratoCurrencyToNumber(valueMatch[0]);
+    if (signedAmount == null || signedAmount === 0 || !currentDay || !currentMonth) {
+      return;
+    }
+
+    rows.push({
+      date: `${yearFallback}-${currentMonth}-${currentDay}`,
+      amount: Math.abs(signedAmount),
+    });
+  });
+
+  return rows;
+}
+
+function findLayoutDateMarkers(items, yearFallback) {
+  const monthItems = items.filter(
+    (item) => item.x < 63 && EXTRATO_MONTH_MAP[item.text.toLowerCase()]
+  );
+
+  return items
+    .filter((item) => item.x < 63 && /^\d{1,2}$/.test(item.text))
+    .map((dayItem) => {
+      const day = Number(dayItem.text);
+      if (day < 1 || day > 31) return null;
+
+      const monthItem = monthItems
+        .map((item) => ({ item, distance: Math.abs(dayItem.y - item.y) }))
+        .filter(({ item, distance }) => item.y <= dayItem.y + 2 && distance <= 24)
+        .sort((a, b) => a.distance - b.distance)[0]?.item;
+      if (!monthItem) return null;
+
+      const month = EXTRATO_MONTH_MAP[monthItem.text.toLowerCase()];
+      return {
+        y: dayItem.y,
+        date: `${yearFallback}-${month}-${String(day).padStart(2, "0")}`,
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => b.y - a.y);
+}
+
+async function parseExtratoPdfByLayout(buffer, yearFallback, password = "") {
+  const pdfParseEntry = require.resolve("pdf-parse");
+  const pdfjsEntry = require.resolve("pdfjs-dist/legacy/build/pdf.mjs", {
+    paths: [path.dirname(pdfParseEntry)],
+  });
+  const pdfjsLib = await import(pathToFileURL(pdfjsEntry).href);
+  const loadingTask = pdfjsLib.getDocument({
+    data: new Uint8Array(Buffer.from(buffer)),
+    password,
+  });
+  const pdf = await loadingTask.promise;
+  const rows = [];
+
+  try {
+    for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+      const page = await pdf.getPage(pageNumber);
+      const content = await page.getTextContent();
+      const items = content.items
+        .filter((item) => item.str?.trim())
+        .map((item) => ({
+          text: item.str.trim(),
+          x: Number(item.transform[4]),
+          y: Number(item.transform[5]),
+        }));
+      const dateMarkers = findLayoutDateMarkers(items, yearFallback);
+
+      items
+        .filter((item) => /AUTH PAGAMENTO\*\*/i.test(item.text))
+        .forEach((authItem) => {
+          const valueItem = items
+            .filter(
+              (item) =>
+                item.x > authItem.x &&
+                Math.abs(item.y - authItem.y) <= 2 &&
+                /^R\$\s*[+-]\s*[0-9][0-9.,]*[.,][0-9]{2}$/i.test(item.text)
+            )
+            .sort((a, b) => a.x - b.x)[0];
+          if (!valueItem) return;
+
+          const signedAmount = parseExtratoCurrencyToNumber(valueItem.text);
+          if (signedAmount == null || signedAmount === 0) return;
+
+          const dateMarker = dateMarkers
+            .map((marker) => ({ marker, distance: marker.y - authItem.y }))
+            .filter(({ distance }) => distance >= -3)
+            .sort((a, b) => a.distance - b.distance)[0]?.marker;
+          if (!dateMarker) return;
+
+          rows.push({ date: dateMarker.date, amount: Math.abs(signedAmount) });
+        });
+    }
+
+    return rows;
+  } finally {
+    await pdf.destroy();
+  }
+}
+
 async function parseExtratoPdf(buffer, yearFallback, password = "") {
   const parser = new PDFParse({ data: buffer, password });
   let result;
@@ -178,71 +335,10 @@ async function parseExtratoPdf(buffer, yearFallback, password = "") {
   try {
     const text = result.text.replace(/\r/g, "");
     const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);
-
-    let currentDay = "";
-    let currentMonth = "";
-    const monthMap = {
-      "jan.": "01",
-      "fev.": "02",
-      "mar.": "03",
-      "abr.": "04",
-      "mai.": "05",
-      "jun.": "06",
-      "jul.": "07",
-      "ago.": "08",
-      "set.": "09",
-      "out.": "10",
-      "nov.": "11",
-      "dez.": "12",
-    };
-
-    const rows = [];
-
-    lines.forEach((line) => {
-      const dayMonthInline = line.match(
-        /^(\d{1,2})\s+(jan\.|fev\.|mar\.|abr\.|mai\.|jun\.|jul\.|ago\.|set\.|out\.|nov\.|dez\.)\s+/i
-      );
-      if (dayMonthInline) {
-        currentDay = String(dayMonthInline[1]).padStart(2, "0");
-        currentMonth = monthMap[dayMonthInline[2].toLowerCase()] || currentMonth;
-      }
-
-      const dayOnly = line.match(/^(\d{1,2})$/);
-      if (dayOnly) {
-        currentDay = String(dayOnly[1]).padStart(2, "0");
-        return;
-      }
-
-      const monthInline = line.match(
-        /^(jan\.|fev\.|mar\.|abr\.|mai\.|jun\.|jul\.|ago\.|set\.|out\.|nov\.|dez\.)\s+/i
-      );
-      if (monthInline) {
-        currentMonth = monthMap[monthInline[1].toLowerCase()] || "";
-      }
-
-      if (!/AUTH PAGAMENTO\*\*/i.test(line)) {
-        return;
-      }
-
-      const valueMatch = line.match(/R\$\s*([+-]\d+(?:[.,]\d{2}))$/);
-      if (!valueMatch) {
-        return;
-      }
-
-      const amount = parseExtratoCurrencyToNumber(valueMatch[0]);
-      if (amount == null || amount <= 0) {
-        return;
-      }
-
-      if (!currentDay || !currentMonth) {
-        return;
-      }
-
-      const date = `${yearFallback}-${currentMonth}-${currentDay}`;
-      rows.push({ date, amount });
-    });
-
-    return rows;
+    const textRows = parseExtratoTextLines(lines, yearFallback);
+    return textRows.length > 0
+      ? textRows
+      : await parseExtratoPdfByLayout(buffer, yearFallback, password);
   } finally {
     await parser.destroy();
   }
@@ -351,6 +447,34 @@ function parseExcelFile(buffer) {
   }
 }
 
+function buildOccurrenceResult(row, hasExcelSource) {
+  const sources = [
+    { count: row.transport, label: "PDF" },
+    { count: row.extrato, label: "extrato" },
+  ];
+  if (hasExcelSource) {
+    sources.push({ count: row.excel, label: "Excel" });
+  }
+
+  const maxCount = Math.max(...sources.map((source) => source.count));
+  const deficits = sources
+    .map((source) => ({ ...source, missing: maxCount - source.count }))
+    .filter((source) => source.missing > 0);
+
+  if (deficits.length === 0) {
+    const occurrenceLabel = maxCount === 1 ? "ocorrência" : "ocorrências";
+    return `Quantidades conferem (${maxCount} ${occurrenceLabel})`;
+  }
+
+  return deficits
+    .map((source) => {
+      const verb = source.missing === 1 ? "Falta" : "Faltam";
+      const item = source.missing === 1 ? "lançamento" : "lançamentos";
+      return `${verb} ${source.missing} ${item} no ${source.label}`;
+    })
+    .join("; ");
+}
+
 function reconcileData(transportRows, extratoRows, excelResult) {
   const excelRows = excelResult?.rows || [];
   const hasExcelSource = excelRows.length > 0;
@@ -382,23 +506,37 @@ function reconcileData(transportRows, extratoRows, excelResult) {
       const hasTransport = row.transport > 0;
       const hasExtrato = row.extrato > 0;
       const hasExcel = row.excel > 0;
+      const activeCounts = hasExcelSource
+        ? [row.transport, row.extrato, row.excel]
+        : [row.transport, row.extrato];
+      const quantitiesMatch = activeCounts.every((count) => count === activeCounts[0]);
 
       if (!hasExcelSource) {
-        if (hasTransport && hasExtrato) {
+        if (hasTransport && hasExtrato && quantitiesMatch) {
           status = "MATCH_PDF_EXTRATO";
+        } else if (hasTransport && hasExtrato) {
+          status = "QUANTIDADE_DIVERGENTE";
         } else if (hasTransport && !hasExtrato) {
           status = "SEM_EXTRATO";
         } else if (!hasTransport && hasExtrato) {
           status = "SEM_PDF_VIAGEM";
         }
-      } else if (hasTransport && hasExtrato && hasExcel) {
+      } else if (hasTransport && hasExtrato && hasExcel && quantitiesMatch) {
         status = "CONCILIADO_3_FONTES";
+      } else if (hasTransport && hasExtrato && hasExcel) {
+        status = "QUANTIDADE_DIVERGENTE";
       } else if (hasTransport && hasExtrato && !hasExcel) {
-        status = "MATCH_PDF_EXTRATO_SEM_EXCEL";
+        status = row.transport === row.extrato
+          ? "MATCH_PDF_EXTRATO_SEM_EXCEL"
+          : "QUANTIDADE_DIVERGENTE";
       } else if (hasTransport && hasExcel && !hasExtrato) {
-        status = "MATCH_PDF_EXCEL_SEM_EXTRATO";
+        status = row.transport === row.excel
+          ? "MATCH_PDF_EXCEL_SEM_EXTRATO"
+          : "QUANTIDADE_DIVERGENTE";
       } else if (!hasTransport && hasExtrato && hasExcel) {
-        status = "MATCH_EXTRATO_EXCEL_SEM_PDF";
+        status = row.extrato === row.excel
+          ? "MATCH_EXTRATO_EXCEL_SEM_PDF"
+          : "QUANTIDADE_DIVERGENTE";
       } else if (hasTransport && !hasExtrato && !hasExcel) {
         status = "SO_PDF_VIAGEM";
       } else if (!hasTransport && hasExtrato && !hasExcel) {
@@ -409,6 +547,8 @@ function reconcileData(transportRows, extratoRows, excelResult) {
       return { 
         ...row, 
         status, 
+        occurrenceResult: buildOccurrenceResult(row, hasExcelSource),
+        excelSourceEnabled: hasExcelSource,
         origens: row.origens ? Array.from(row.origens).join(", ") : "",
         tripTotals: row.tripTotals ? Array.from(row.tripTotals) : []
       };

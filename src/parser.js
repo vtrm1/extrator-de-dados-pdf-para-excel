@@ -51,6 +51,13 @@ function extractValue(block, regex) {
   return match ? match[1].trim() : "";
 }
 
+function extractCteNumber(block) {
+  return extractValue(
+    block,
+    /(?:N(?:[\u00ba\u00b0o.]|[u\u00fa]mero)?\s*(?:do\s*)?)?(?:CT\s*-?\s*e|CTE)\s*(?:N(?:[\u00ba\u00b0o.]|[u\u00fa]mero)?\s*)?:?\s*([0-9]{3,})/i
+  );
+}
+
 function parseCurrency(value) {
   if (!value) {
     return null;
@@ -114,6 +121,7 @@ function hasClosedTrip(block) {
 
 function parseBlock(block, pageNumber) {
   const conhecimento = extractValue(block, /CONHECIMENTO:\s*([0-9]+)/);
+  const numeroCte = extractCteNumber(block);
   const idViagem = extractValue(block, /ID da Viagem:\s*([0-9]+)/);
   const dataCadastro = extractValue(block, /Data do Cadastro:\s*([0-9/: ]+)/);
   const dataEmbarque = extractValue(block, /Data do Embarque:\s*([0-9/: ]+)/);
@@ -135,13 +143,13 @@ function parseBlock(block, pageNumber) {
   const saldo = tipoTotais.saldo;
   const total = (adiantamento === null && saldo === null) ? null : (adiantamento || 0) + (saldo || 0);
 
-  if (!conhecimento && !idViagem && total == null) {
+  if (!numeroCte && !conhecimento && !idViagem && total == null) {
     return null;
   }
 
   return {
     pagina_pdf: pageNumber,
-    numero_documento: conhecimento,
+    numero_documento: numeroCte || conhecimento,
     id_viagem: idViagem,
     data_cadastro: dataCadastro,
     data_embarque: dataEmbarque,

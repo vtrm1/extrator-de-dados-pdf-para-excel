@@ -25,7 +25,7 @@ Notas:
 ## Campos extraidos neste primeiro modelo
 
 - Pagina do PDF
-- Numero do documento (`CONHECIMENTO`)
+- Numero do CT-e (com fallback para `CONHECIMENTO` em relatorios antigos)
 - ID da viagem
 - Data do cadastro
 - Data do embarque
@@ -39,4 +39,4 @@ Notas:
 ## Observacao
 
 Este parser foi ajustado para o layout do PDF `Detalhado de Transacao - CNPJ`.
-Agora a exportacao pode sair em uma unica aba, separada por pagina ou separada por documento.
+Agora a exportacao pode sair em uma unica aba, separada por pagina ou separada por CT-e.
